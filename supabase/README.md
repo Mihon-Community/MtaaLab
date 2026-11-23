@@ -1,12 +1,26 @@
-# Supabase setup (deferred)
+# Supabase project setup and status
 
-The project is not connected yet. No migration in this repository has been applied. When the team connects the Supabase MCP server:
+This repository is connected to the MtaaLab Supabase project. Do not print, commit, or paste credential values. The backend uses the root `.env`; nested backend/frontend environment files are not required.
 
-1. Use the MCP project-listing tool to identify and confirm the intended project and its ref. Do not print secret keys.
-2. Review `migrations/0001_initial_schema.sql` with both developers. Apply it through the MCP migration/query surface and record the result in the PR.
-3. Run `seed.sql` only against a disposable/demo project. The fixtures use synthetic identities and no passwords. Create usable demo sign-in credentials through Auth separately.
-4. Generate TypeScript types from the connected project schema and save them as `frontend/src/types/database.ts` (generated output is gitignored until reviewed and intentionally added).
-5. Create buckets: `mission-assets` (public only for approved non-sensitive assets; otherwise private), `session-reports` (private), `student-submissions` (private), and `generated-audio` (private). Add narrowly scoped policies and short-lived signed URLs as needed.
-6. Before any client access, verify RLS for every exposed table, ownership/class assignment rules, and denied client writes. Simulation writes stay behind FastAPI.
+## Applied database changes
 
-The backend's primary persistence path is SQLAlchemy/psycopg using `SUPABASE_DB_URL`; optional Supabase secret key use is backend-only and requires explicit FastAPI authorization because it bypasses RLS.
+These migrations have been applied to the connected project in order:
+
+1. `migrations/0001_initial_schema.sql` — initial application schema and RLS policies.
+2. `migrations/0002_rls_and_index_hardening.sql` — hardened internal policy helper, restricted its grants, added missing foreign-key indexes, and optimized policy identity calls.
+3. `migrations/0003_replay_idempotency.sql` — added an optional replay creation key and per-parent uniqueness.
+
+`seed.sql` has been applied with synthetic demo fixtures. It created a demo school, profiles, class/membership, mission, and scenario version. No synthetic simulation sessions or persistence-test rows remain. Persistence tests use uniquely identified fixtures and clean up only rows they create.
+
+All public application tables have RLS enabled. A direct anonymous-role insert check was denied and rolled back. The security advisor reports leaked-password protection disabled; enable it in the Auth settings when the project owner is ready. A database password rotation is also outstanding because the connected SQL tool does not permit changing role passwords.
+
+The local backend can use `SUPABASE_DB_URL` for PostgreSQL persistence, but the current development runner cannot resolve/reach the database host. Real-database pytest cases therefore fail during connection setup here; CI skips them when the URL is not configured. See `docs/INTEGRATION_STATUS.md` for validation details.
+
+## Remaining Supabase work
+
+- Generate and review TypeScript types after the frontend begins consuming the schema.
+- Create the planned buckets (`mission-assets`, `session-reports`, `student-submissions`, `generated-audio`) with narrowly scoped policies before implementing uploads.
+- Add a mission assignment relation before filtering mission discovery by class.
+- Rotate the database password in the Supabase Dashboard and update the root `.env`.
+
+The backend's primary persistence path is SQLAlchemy/psycopg using `SUPABASE_DB_URL`. `SUPABASE_SECRET_KEY` is backend-only and must only be used behind explicit FastAPI authorization because it bypasses RLS.
