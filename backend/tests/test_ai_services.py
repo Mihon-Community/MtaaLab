@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from copy import deepcopy
 from types import SimpleNamespace
 from typing import Any
@@ -93,12 +94,19 @@ def test_ai_03_timeout_falls_back_without_mutating_state(monkeypatch: Any) -> No
     assert state == before
 
 
-def test_numeric_state_output_is_never_accepted(monkeypatch: Any) -> None:
+@pytest.mark.parametrize(
+    "message",
+    ["Reservoir is now 20.", "The reservoir fell by twenty units."],
+)
+def test_numeric_state_output_is_never_accepted(monkeypatch: Any, message: str) -> None:
     enable_fake_key(monkeypatch)
-    content = (
-        '{"actor_id":"clinic_nurse","message":"Reservoir is now 20.",'
-        '"referenced_facts":["reservoir_level"],'
-        '"suggested_question":"How will you protect the clinic?"}'
+    content = json.dumps(
+        {
+            "actor_id": "clinic_nurse",
+            "message": message,
+            "referenced_facts": ["reservoir_level"],
+            "suggested_question": "How will you protect the clinic?",
+        }
     )
 
     result = stakeholder_dialogue(
@@ -109,6 +117,23 @@ def test_numeric_state_output_is_never_accepted(monkeypatch: Any) -> None:
 
     assert result.status == "ai_unavailable"
     assert result.validation_status == "fallback_numeric_or_state_change"
+
+
+def test_reasoning_prompt_redacts_self_identification_and_school(monkeypatch: Any) -> None:
+    enable_fake_key(monkeypatch)
+    client = FakeNvidiaClient("not valid json")
+
+    evaluate_reasoning(
+        "I am Amina Mwangi from Green Valley School. I compared the clinic and farm needs.",
+        {"turn": 1},
+        client=client,
+    )
+
+    assert client.call is not None
+    prompt = str(client.call["messages"])
+    assert "Amina" not in prompt
+    assert "Mwangi" not in prompt
+    assert "Green Valley" not in prompt
 
 
 def test_stakeholder_prompt_redacts_personal_information(monkeypatch: Any) -> None:

@@ -16,6 +16,25 @@ from app.config import settings
 
 T = TypeVar("T")
 RecordInteraction = Callable[..., None]
+_NUMBER_WORDS = (
+    "zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|"
+    "fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|"
+    "fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion|dozen|"
+    "half|quarter|twice|double|triple"
+)
+_NUMBER_PHRASE = rf"(?:{_NUMBER_WORDS})(?:[\s-]+(?:{_NUMBER_WORDS}))*"
+_NUMBERED_QUANTITY = re.compile(
+    rf"\b{_NUMBER_PHRASE}\s+(?:water\s+)?(?:units?|credits?|lit(?:er|re)s?|gallons?|"
+    r"percent(?:age)?|weeks?|turns?|households?|families|people)\b",
+    re.IGNORECASE,
+)
+_NUMERIC_STATE_CLAIM = re.compile(
+    rf"\b(?:reservoir(?:\s+level)?|water|budget|crop(?:\s+health)?|wellbeing|"
+    rf"service(?:\s+level)?|demand|leakage|storage|withdrawal|overflow)\b"
+    rf"[^.!?]{{0,60}}\b(?:fell|dropped|rose|increased|decreased|changed|reached|"
+    rf"remains?|is|was|now|by|to|at)\s+(?:by\s+|to\s+|at\s+)?{_NUMBER_PHRASE}\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,7 +166,11 @@ def reject_numeric_claims(value: Any) -> bool:
     elif isinstance(value, list):
         return any(reject_numeric_claims(item) for item in value)
     elif isinstance(value, str):
-        return bool(re.search(r"(?<![A-Za-z])\d+(?:[.,]\d+)?\s*%?", value))
+        return bool(
+            re.search(r"(?<![A-Za-z])\d+(?:[.,]\d+)?\s*%?", value)
+            or _NUMBERED_QUANTITY.search(value)
+            or _NUMERIC_STATE_CLAIM.search(value)
+        )
     elif isinstance(value, int | float) and not isinstance(value, bool):
         return True
     return False
@@ -187,6 +210,20 @@ def redact_direct_pii(value: Any) -> Any:
             ),
             "[redacted]",
             text,
+        )
+        text = re.sub(
+            r"\b(?:[Ii] am|I['’]m|[Mm]y name is|[Cc]all me)\s+"
+            r"[A-Z][\w'’-]*(?:\s+[A-Z][\w'’-]*){0,2}",
+            "[redacted]",
+            text,
+        )
+        text = re.sub(
+            r"\b(?:[Mm]y school is|[Ii] attend|[Ii] go to|from)\s+(?:the\s+)?"
+            r"[A-Z][\w'&’-]*(?:\s+[A-Z][\w'&’-]*){0,4}\s+"
+            r"(?:school|academy|college|primary|secondary|university)\b",
+            "[redacted]",
+            text,
+            flags=re.IGNORECASE,
         )
         return text[:2000]
     return value
