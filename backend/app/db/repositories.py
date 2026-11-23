@@ -92,6 +92,19 @@ class SimulationRepository:
             )
         )
 
+    def get_created_by_key(
+        self, student_id: UUID, mission_version_id: UUID, idempotency_key: str
+    ) -> SimulationSession | None:
+        """Find an original session created by the same learner/key pair."""
+        return self.session.scalar(
+            select(SimulationSession).where(
+                SimulationSession.student_id == student_id,
+                SimulationSession.mission_version_id == mission_version_id,
+                SimulationSession.parent_session_id.is_(None),
+                SimulationSession.creation_idempotency_key == idempotency_key,
+            )
+        )
+
     def get_snapshot(self, session_id: UUID, turn_number: int) -> WorldStateSnapshot | None:
         return self.session.scalar(
             select(WorldStateSnapshot).where(

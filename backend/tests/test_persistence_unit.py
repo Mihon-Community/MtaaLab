@@ -88,6 +88,58 @@ def test_canonical_hash_ignores_mapping_insertion_order() -> None:
     )
 
 
+def test_session_create_idempotency_returns_existing_session(monkeypatch) -> None:
+    user_id = UUID("20000000-0000-4000-8000-000000000020")
+    mission_id = UUID("30000000-0000-4000-8000-000000000030")
+    version_id = UUID("40000000-0000-4000-8000-000000000040")
+    session_id = UUID("50000000-0000-4000-8000-000000000050")
+    initial_state = service_module.load_scenario()["initial_state"]
+    existing = SimpleNamespace(
+        id=session_id,
+        current_turn=0,
+        status="active",
+        current_state=initial_state,
+    )
+    version = SimpleNamespace(
+        id=version_id,
+        mission_id=mission_id,
+        version=1,
+        initial_state=initial_state,
+    )
+
+    class FakeDb(FakeSession):
+        def get(self, model, key):
+            assert model.__name__ == "Profile"
+            assert key == user_id
+            return SimpleNamespace(role="student")
+
+    class FakeMissionRepository:
+        def __init__(self, _db):
+            pass
+
+        def get_published(self, requested_mission_id):
+            assert requested_mission_id == mission_id
+            return SimpleNamespace(id=mission_id), version
+
+    class FakeCreationRepository:
+        def get_created_by_key(self, requested_user, requested_version, requested_key):
+            assert requested_user == user_id
+            assert requested_version == version_id
+            assert requested_key == "create-retry-key"
+            return existing
+
+    fake_db = FakeDb()
+    service = SimulationService(fake_db)
+    service.repository = FakeCreationRepository()  # type: ignore[assignment]
+    monkeypatch.setattr(service_module, "MissionRepository", FakeMissionRepository)
+
+    result = service.get_or_create_session(mission_id, user_id, "create-retry-key")
+
+    assert result["session_id"] == session_id
+    assert result["state"].current_turn == 0
+    assert fake_db.added == []
+
+
 def test_committing_one_engine_result_writes_turn_rows_atomically(monkeypatch) -> None:
     fake_db = FakeSession()
     service = UnitSimulationService(fake_db, FakeRepository())

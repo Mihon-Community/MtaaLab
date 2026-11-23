@@ -30,7 +30,7 @@ def create_simulation(
     user: CurrentUser = Depends(get_current_user),  # noqa: B008
     gateway: SimulationGateway = Depends(get_simulation_gateway),  # noqa: B008
     idempotency_key: str | None = Header(
-        default=None, alias="Idempotency-Key", min_length=1, max_length=200
+        default=None, alias="Idempotency-Key", min_length=1, max_length=128
     ),
 ) -> SessionCreatedResponse:
     """Start a run from a published, immutable scenario version."""

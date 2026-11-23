@@ -11,6 +11,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -141,9 +142,8 @@ class SimulationService:
         self, mission_id: UUID, user_id: UUID, idempotency_key: str | None = None
     ) -> dict[str, Any]:
         """Create a persisted turn-zero session from a published immutable scenario."""
-        del (
-            idempotency_key
-        )  # Session idempotency is optional in API_CONTRACT; no key column exists.
+        if idempotency_key is not None and (not idempotency_key or len(idempotency_key) > 128):
+            raise ValueError("Session Idempotency-Key must contain 1 to 128 characters")
         profile = self.db.get(Profile, user_id)
         if profile is None or profile.role != "student":
             raise MissionNotFoundError("Published mission not found")
@@ -154,28 +154,44 @@ class SimulationService:
 
         if version.version != 1 or self.scenario.get("scenario_id") != "mtoni":
             raise MissionNotFoundError("No backend scenario is configured for this mission version")
+        if idempotency_key is not None:
+            existing = self.repository.get_created_by_key(user_id, version.id, idempotency_key)
+            if existing is not None:
+                return self._session_created_payload(existing, version)
+
         initial_state = self._state_dict(version.initial_state)
         current_turn = initial_state["current_turn"]
         row = SimulationSession(
             id=uuid4(),
             student_id=user_id,
             mission_version_id=version.id,
+            creation_idempotency_key=idempotency_key,
             status="active",
             current_turn=current_turn,
             current_state=initial_state,
         )
-        with self._write_transaction():
-            self.db.add(row)
-            self.db.flush()
-            self.db.add(
-                WorldStateSnapshot(
-                    id=uuid4(),
-                    session_id=row.id,
-                    turn_number=current_turn,
-                    state=initial_state,
-                    state_hash=canonical_json_hash(initial_state),
+        try:
+            with self._write_transaction():
+                self.db.add(row)
+                self.db.flush()
+                self.db.add(
+                    WorldStateSnapshot(
+                        id=uuid4(),
+                        session_id=row.id,
+                        turn_number=current_turn,
+                        state=initial_state,
+                        state_hash=canonical_json_hash(initial_state),
+                    )
                 )
-            )
+        except IntegrityError:
+            # A concurrent retry can race the initial lookup. The partial unique index
+            # chooses one winner; after rollback, return that persisted session.
+            if idempotency_key is None:
+                raise
+            existing = self.repository.get_created_by_key(user_id, version.id, idempotency_key)
+            if existing is None:
+                raise
+            return self._session_created_payload(existing, version)
         return self._session_created_payload(row, version)
 
     def get_state(self, session_id: UUID, user_id: UUID) -> dict[str, Any]:

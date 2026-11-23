@@ -183,9 +183,16 @@ def test_api_flow_persists_decision_history_replay_debrief_and_report(
 
     try:
         with TestClient(app) as client:
-            created = client.post("/api/simulations", json={"mission_id": str(mission_id)})
+            create_headers = {"Idempotency-Key": "api-integration-create"}
+            create_payload = {"mission_id": str(mission_id)}
+            created = client.post("/api/simulations", headers=create_headers, json=create_payload)
             assert created.status_code == 201
             session_id = created.json()["session_id"]
+            duplicate_create = client.post(
+                "/api/simulations", headers=create_headers, json=create_payload
+            )
+            assert duplicate_create.status_code == 201
+            assert duplicate_create.json()["session_id"] == session_id
 
             decision = client.post(
                 f"/api/simulations/{session_id}/decisions",
