@@ -10,6 +10,7 @@ Date: 2026-11-23
 - Supabase access tokens are validated against the project's ES256 JWKS; role comes from the profile table. Student ownership and teacher class-assignment checks are enforced.
 - NVIDIA stakeholder dialogue, qualitative reasoning feedback, and debriefs use validated schemas, allowlists, bounded prompts, de-identification, and safe fallbacks. The AI cannot change numeric simulation values.
 - `GET /api/health` returned `{"status":"ok"}` from a locally started Uvicorn process.
+- The CI workflow can also be run manually and scans full Git history with the open-source Gitleaks CLI, without requiring an organization license secret.
 
 Commands and results from `backend/`:
 
@@ -69,6 +70,6 @@ The synthetic seed is applied: one demo school, two profiles, one class membersh
 ## Delivery
 
 - Branch: `feature/lennox` (kept as the owner's renamed branch; no force-push or merge).
-- PR: not opened yet.
-- CI: pending PR creation.
+- PR: [#2 — backend simulation and Supabase integration](https://github.com/Mihon-Community/MtaaLab/pull/2), open as draft against `develop`.
+- CI: [run 45197300054 passed](https://github.com/Mihon-Community/MtaaLab/actions/runs/45197300054) for backend, frontend, Docker, and secret-scan jobs. The pull request remains unmerged; frontend-owner API-contract review is pending.
 - Needs Lennox: rotate the database password and update the local root `.env`; enable leaked-password protection in Auth settings; review placeholder scenario values; review the documented API differences with the frontend owner. The root `.env` is ignored and is not part of the branch.
