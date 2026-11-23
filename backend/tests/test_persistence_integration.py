@@ -24,7 +24,10 @@ from app.api.dependencies import (
 )
 from app.config import settings
 from app.db.models import (
+    ClassMembership,
+    ClassModel,
     Mission,
+    MissionAssignment,
     Profile,
     ScenarioVersion,
     School,
@@ -48,8 +51,11 @@ def supabase_test_context():
     assert settings.supabase_db_url is not None
     database_engine = build_engine(settings.supabase_db_url)
     factory = sessionmaker(bind=database_engine, autoflush=False, expire_on_commit=False)
-    school_id, student_id, mission_id, version_id = (uuid4() for _ in range(4))
-    email = f"mtaalab-integration-{student_id.hex}@example.test"
+    school_id, student_id, teacher_id, class_id, mission_id, version_id = (
+        uuid4() for _ in range(6)
+    )
+    student_email = f"mtaalab-integration-student-{student_id.hex}@example.test"
+    teacher_email = f"mtaalab-integration-teacher-{teacher_id.hex}@example.test"
     scenario_path = (
         Path(__file__).resolve().parents[1] / "app" / "simulation" / "scenarios" / "mtoni_v1.json"
     )
@@ -58,31 +64,37 @@ def supabase_test_context():
 
     try:
         try:
-            with factory.begin() as db:
-                db.execute(
-                    text(
-                        """
-                        insert into auth.users
-                          (id, instance_id, aud, role, email, encrypted_password,
-                           email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
-                           created_at, updated_at)
-                        values
-                          (:id, '00000000-0000-0000-0000-000000000000',
-                           'authenticated', 'authenticated', :email, '', now(),
-                           '{}'::jsonb, '{}'::jsonb, now(), now())
-                        """
-                    ),
-                    {"id": student_id, "email": email},
+            with database_engine.connect() as connection:
+                connection.execute(text("select 1"))
+        except OperationalError:
+            pytest.skip("Direct Supabase database connection is unavailable")
+
+        with factory.begin() as db:
+            insert_auth_user = text(
+                """
+                insert into auth.users
+                  (id, instance_id, aud, role, email, encrypted_password,
+                   email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
+                   created_at, updated_at)
+                values
+                  (:id, '00000000-0000-0000-0000-000000000000',
+                   'authenticated', 'authenticated', :email, '', now(),
+                   '{}'::jsonb, '{}'::jsonb, now(), now())
+                """
+            )
+            db.execute(insert_auth_user, {"id": student_id, "email": student_email})
+            db.execute(insert_auth_user, {"id": teacher_id, "email": teacher_email})
+            db.add(
+                School(
+                    id=school_id,
+                    name=f"Synthetic integration school {student_id.hex[:10]}",
+                    country="Kenya",
+                    timezone="Africa/Nairobi",
                 )
-                db.add(
-                    School(
-                        id=school_id,
-                        name=f"Synthetic integration school {student_id.hex[:10]}",
-                        country="Kenya",
-                        timezone="Africa/Nairobi",
-                    )
-                )
-                db.add(
+            )
+            db.flush()
+            db.add_all(
+                [
                     Profile(
                         id=student_id,
                         display_name="Synthetic Integration Student",
@@ -91,34 +103,69 @@ def supabase_test_context():
                         grade_level="Grade 7",
                         preferred_language="en",
                         accessibility_preferences={},
-                    )
+                    ),
+                    Profile(
+                        id=teacher_id,
+                        display_name="Synthetic Integration Teacher",
+                        role="teacher",
+                        school_id=school_id,
+                        grade_level="Grade 7",
+                        preferred_language="en",
+                        accessibility_preferences={},
+                    ),
+                ]
+            )
+            db.flush()
+            db.add(
+                ClassModel(
+                    id=class_id,
+                    school_id=school_id,
+                    name=f"Synthetic integration class {class_id.hex[:10]}",
+                    grade_level="Grade 7",
+                    teacher_id=teacher_id,
                 )
-                mission = Mission(
-                    id=mission_id,
-                    title="Synthetic Mtoni integration mission",
-                    description="A synthetic fixture used only by persistence tests.",
-                    subject="Systems science",
-                    grade_band="Grade 7",
-                    status="published",
-                    published_version_id=None,
+            )
+            db.flush()
+            db.add(
+                ClassMembership(
+                    id=uuid4(),
+                    class_id=class_id,
+                    student_id=student_id,
+                    membership_status="active",
                 )
-                db.add(mission)
-                db.flush()
-                db.add(
-                    ScenarioVersion(
-                        id=version_id,
-                        mission_id=mission_id,
-                        version=1,
-                        initial_state=scenario["initial_state"],
-                        rules_version=scenario["rules_version"],
-                        learning_objectives=scenario["learning_objectives"],
-                        approved_by=None,
-                    )
+            )
+            db.flush()
+            mission = Mission(
+                id=mission_id,
+                title="Synthetic Mtoni integration mission",
+                description="A synthetic fixture used only by persistence tests.",
+                subject="Systems science",
+                grade_band="Grade 7",
+                status="published",
+                published_version_id=None,
+            )
+            db.add(mission)
+            db.flush()
+            db.add(
+                ScenarioVersion(
+                    id=version_id,
+                    mission_id=mission_id,
+                    version=1,
+                    initial_state=scenario["initial_state"],
+                    rules_version=scenario["rules_version"],
+                    learning_objectives=scenario["learning_objectives"],
+                    approved_by=None,
                 )
-                db.flush()
-                mission.published_version_id = version_id
-        except OperationalError:
-            pytest.skip("Direct Supabase database connection is unavailable")
+            )
+            db.flush()
+            mission.published_version_id = version_id
+            db.add(
+                MissionAssignment(
+                    class_id=class_id,
+                    mission_id=mission_id,
+                    assigned_by=teacher_id,
+                )
+            )
         fixture_committed = True
 
         yield {
@@ -141,8 +188,15 @@ def supabase_test_context():
                     )
                     db.execute(delete(ScenarioVersion).where(ScenarioVersion.id == version_id))
                     db.execute(delete(Mission).where(Mission.id == mission_id))
+                    db.execute(delete(ClassMembership).where(ClassMembership.class_id == class_id))
+                    db.execute(
+                        delete(MissionAssignment).where(MissionAssignment.class_id == class_id)
+                    )
+                    db.execute(delete(ClassModel).where(ClassModel.id == class_id))
                     db.execute(delete(Profile).where(Profile.id == student_id))
+                    db.execute(delete(Profile).where(Profile.id == teacher_id))
                     db.execute(text("delete from auth.users where id = :id"), {"id": student_id})
+                    db.execute(text("delete from auth.users where id = :id"), {"id": teacher_id})
                     db.execute(delete(School).where(School.id == school_id))
         finally:
             database_engine.dispose()
@@ -246,7 +300,11 @@ def test_sim05_and_rep01_persist_idempotently_and_replay_without_mutating_source
         action = Action(action_type="repair_main_pipe", parameters={}, expected_turn=0)
         first = service.submit_decision(session_id, student_id, action, "sim05-retry-key")
         duplicate = service.submit_decision(session_id, student_id, action, "sim05-retry-key")
-        assert duplicate.model_dump(mode="json") == first.model_dump(mode="json")
+        assert duplicate.model_dump(mode="json", exclude={"idempotent_replay"}) == first.model_dump(
+            mode="json", exclude={"idempotent_replay"}
+        )
+        assert first.idempotent_replay is False
+        assert duplicate.idempotent_replay is True
         assert service.get_state(session_id, student_id)["turn"] == 1
         assert service.history(session_id, student_id)["total"] == 2
         decisions = list(

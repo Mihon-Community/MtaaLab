@@ -33,7 +33,7 @@ Real database acceptance checks use only isolated synthetic fixtures and remove 
 pytest -q -m integration
 ```
 
-They require a reachable `SUPABASE_DB_URL`. The current development runner cannot resolve/reach the Supabase database host directly, so those checks fail during connection setup here. CI has no database credential and skips the checks. The optional live NIM smoke test is marked `nvidia` and skips when `NVIDIA_API_KEY` is absent. No secrets are needed for unit tests.
+They require a reachable `SUPABASE_DB_URL`. The complete non-NVIDIA suite passed in a disposable Docker-network runner, including the real Supabase persistence and RLS cases. The host runner cannot reliably reach the configured database directly. CI has no database credential and skips DB-dependent checks. The optional live NIM smoke test is marked `nvidia` and skips when `NVIDIA_API_KEY` is absent. No secrets are needed for unit tests.
 
 ## Code map
 
@@ -57,6 +57,7 @@ They require a reachable `SUPABASE_DB_URL`. The current development runner canno
 - RLS stays enabled. Browser roles cannot write authoritative simulation data.
 - Mission discovery and session creation require an assignment to one of the learner's active classes; teachers may manage assignments only in their own school-scoped classes.
 - Public Africa's Talking callbacks require the root `WEBHOOK_TOKEN` through `X-Webhook-Token` or Bearer authorization; an unset token fails closed. USSD input is parsed as a bounded cumulative path and submitted through the same deterministic simulation gateway as the PWA. The callback stores only a hashed phone reference, uses a 180-second menu expiry, and replays a stored response for a duplicate request. It never calls NVIDIA.
+- The Africa's Talking sandbox does not receive the app's secret from `.env`. For local callbacks, stop any existing ngrok tunnel and run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\backend\scripts\start-ngrok.ps1` from the repository root in a second PowerShell window; it creates a temporary, path-scoped ngrok Traffic Policy that adds `WEBHOOK_TOKEN` from the root `.env` to only the Africa's Talking webhook requests. Set the service-code callback URL in the Africa's Talking dashboard to `<PUBLIC_BASE_URL>/api/webhooks/africastalking/ussd`.
 - Outbound sandbox SMS is lazy-initialized, limited to 160 characters, and persisted to `delivery_logs`; the test-send script is manual only and is not run by CI.
 - A qualitative assessment is only created after mission completion and is unique per session and rubric version.
 

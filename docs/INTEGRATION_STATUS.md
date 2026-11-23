@@ -1,78 +1,64 @@
 # Backend integration status
 
-Date: 2026-11-23
+Date: 2026-11-24
 
-## Verified work
+## Verification
 
-- Deterministic Mtoni engine, action validation, allocation policies, scripted events, state bounds, and water accounting are implemented. Unit coverage exhausts all six-turn action sequences.
-- PostgreSQL-backed services atomically persist decisions, events, snapshots, session state, AI status, and replay children. Session locking and decision/replay idempotency are implemented.
-- FastAPI routes cover published mission metadata, session creation/state/history, decisions, replay, debrief, reports, and health. API unit tests exercise the route flow with explicit fake services and auth.
-- Supabase access tokens are validated against the project's ES256 JWKS; role comes from the profile table. Student ownership and teacher class-assignment checks are enforced.
-- NVIDIA stakeholder dialogue, qualitative reasoning feedback, and debriefs use validated schemas, allowlists, bounded prompts, de-identification, and safe fallbacks. The AI cannot change numeric simulation values.
-- `GET /api/health` returned `{"status":"ok"}` from a locally started Uvicorn process.
-- The CI workflow can also be run manually and scans full Git history with the open-source Gitleaks CLI, without requiring an organization license secret.
-
-Commands and results from `backend/`:
-
-| Command | Result |
+| Check | Result |
 |---|---|
-| `.venv\\Scripts\\python.exe -m pytest -q -m "not integration and not nvidia" -p no:cacheprovider` | 75 passed, 5 deselected. |
-| `.venv\\Scripts\\python.exe -m pytest -q tests/test_africastalking.py -p no:cacheprovider` | 14 passed after the webhook token check was added. |
-| `.venv\\Scripts\\ruff.exe check .` | Passed. |
-| `.venv\\Scripts\\ruff.exe format --check .` | Passed; all 69 Python files formatted. |
-| SQLAlchemy connection check using `SUPABASE_DB_URL` | Failed with `OperationalError`; direct PostgreSQL integration tests were not run. No connection details or credentials were printed. |
-| Live NVIDIA smoke test | Passed in an earlier full test invocation. It was excluded from the final combined test run. |
-| Uvicorn + `GET http://127.0.0.1:8765/api/health` | Returned `ok`; server was stopped after the check. |
+| Complete non-NVIDIA backend suite in a disposable Docker network runner | 83 passed, 1 optional NVIDIA test deselected. This includes the live PostgreSQL persistence, replay/idempotency, concurrent-turn, and RLS checks. Synthetic rows were cleaned up. |
+| Backend unit and API tests on the host runner | 79 passed; database integration tests were excluded because that runner cannot establish the Supabase connection. |
+| Optional NVIDIA NIM smoke test | 1 passed with one bounded, non-identifying request. |
+| Africa's Talking callback unit tests | 14 passed. |
+| Rubric registry tests | 2 passed. |
+| Ruff lint and formatting | Passed. |
+| Docker backend rebuild and health check | Rebuilt; `GET /api/health` returned 200 and the backend container was healthy. |
+| Africa's Talking SMS sandbox | Multiple manual sends returned `sent`; three matching delivery-log records are present. This is provider acceptance, not confirmation of handset delivery. |
+| USSD callback through the public tunnel | Four authenticated requests completed: dial menu, repair confirmation, one persisted turn, and duplicate retry. Each returned HTTP 200; the duplicate returned the stored response and did not apply a second decision. The generated test simulation was removed. |
 
-The API-level full flow test is present and runs against PostgreSQL when reachable. A live authenticated API-to-database flow could not be verified from this runner because direct database connections fail before fixture setup. The API route tests use dependency overrides and are unit tests, not a substitute for that live run. The manual Africa's Talking SMS script was not run; no SMS was sent.
+The configured public tunnel is reachable. A request without the webhook token receives `401`, so the current ngrok process does not inject `WEBHOOK_TOKEN`. `backend/scripts/start-ngrok.ps1` now prepares a temporary path-scoped Traffic Policy from the single root `.env`; its `-ValidateOnly` mode passed. The real Africa's Talking simulator was not started because the active tunnel needs to be restarted with that policy and the provider dashboard callback must point to the tunnel URL.
 
-## §14 acceptance coverage
+One local cold-start callback took about 11.8 seconds; the other measured local callbacks ranged from about 1.4 to 5.3 seconds. SQL instrumentation on one new-session callback observed 14 statements totaling about 3.2 seconds. The USSD path was reduced to avoid repeated session/state reads. Supabase response time varies between calls, so these measurements are a development baseline rather than a production latency guarantee.
+
+## Acceptance coverage
 
 | ID | Status | Evidence / limit |
 |---|---|---|
-| SIM-01 | Pass | Deterministic same-input unit test. |
+| SIM-01 | Pass | Deterministic same-input unit coverage. |
 | SIM-02 | Pass | Unaffordable action is rejected without state mutation. |
-| SIM-03 | Pass | Out-of-range action parameter is rejected. |
-| SIM-04 | Pass | Accounting invariant covered by per-turn and six-turn sequence tests. |
-| SIM-05 | Partial | Decision and session-create duplicate handling pass unit tests; decision, replay, and session-create integration checks are implemented but were not run because the database connection check returned `OperationalError`. |
-| SIM-06 | Partial | Concurrent-turn integration test is implemented; it was not run because the database connection check returned `OperationalError`. |
-| AI-01 | Pass | Malformed output uses static fallback. |
+| SIM-03 | Pass | Out-of-range action parameters are rejected. |
+| SIM-04 | Pass | Water accounting invariants, including six-turn sequences. |
+| SIM-05 | Pass | Live PostgreSQL decision idempotency and stored retry result. |
+| SIM-06 | Pass | Live concurrent-turn integration case. |
+| AI-01 | Pass | Malformed model output uses the static fallback. |
 | AI-02 | Pass | Unsupported fact references are rejected to fallback. |
-| AI-03 | Pass | Timeout and missing-key fallbacks keep the engine unaffected; live NVIDIA smoke passed. |
-| DB-01 | Partial | A foreign-student state request through FastAPI and the persistence authorization boundary returns `404` without exposing a record. Live PostgreSQL fixture flow remains unavailable. |
-| DB-02 | Pass, manual | MCP SQL check as `anon` denied a synthetic write and rolled back. Automated direct-connection test was not run because the connection check returned `OperationalError`. |
-| AT-01 | Pass, mocked | First dial, repair confirmation, duplicate retry, cancellation, invalid input, exit, expiry, bounded screens, and shared-engine submission are covered by mocked callback tests. No provider USSD session was run. |
-| AT-02 | Partial | Provider status callbacks upsert idempotently with sanitized error codes; outbound delivery is mocked and recorded. No live SMS was sent or handset delivery verified. |
-| AT-03 | Pass, mocked | Missing-key behavior returns `not_configured`, logs one warning, and does not raise. |
-| MOB-01 | Partial | Same-key API and USSD retry paths are covered with fake services; offline/reconnect UI behavior is frontend work. Live database retry check was not run. |
-| REP-01 | Partial | API replay contract and isolated DB test are implemented; DB test was not run because the connection check returned `OperationalError`. Test asserts same initial state and unchanged source when run with connectivity. |
+| AI-03 | Pass | Missing-key and timeout fallback paths pass; the optional live NIM smoke test also passed. |
+| DB-01 | Pass | Live API-to-PostgreSQL integration flow and session ownership checks. |
+| DB-02 | Pass, manual | Supabase RLS was previously checked with an `anon` write attempt and denied. Automated host-runner DB check cannot connect from this environment. |
+| AT-01 | Application flow pass; provider simulator pending | Public tunnel callback flow applies one valid turn and deduplicates a retry. The Africa's Talking simulator itself still needs a dashboard-configured callback and ngrok header injection. |
+| AT-02 | Partial | Sandbox SMS API returned `sent` repeatedly and logs provider outcomes. No handset delivery was confirmed. |
+| AT-03 | Pass, mocked | Missing API key returns `not_configured` without raising. |
+| MOB-01 | Backend pass; frontend out of scope | USSD duplicate and persistence paths pass. Browser offline/reconnect behavior belongs to the frontend. |
+| REP-01 | Pass | Live replay integration preserves the source run and initial state. |
 
-## Supabase changes and rows
+## Supabase state and owner tasks
 
-Applied migrations:
+Migrations `0001`–`0006` are applied. The synthetic Mtoni mission is assigned to its demo class. The phone map stores only a SHA-256 reference, and the temporary USSD and integration-test rows created during this pass were removed.
 
-1. `supabase/migrations/0001_initial_schema.sql`
-2. `supabase/migrations/0002_rls_and_index_hardening.sql`
-3. `supabase/migrations/0003_replay_idempotency.sql`
-4. `supabase/migrations/0004_session_creation_idempotency.sql`
-5. `supabase/migrations/0005_assignments_and_mobile.sql`
-6. `supabase/migrations/0006_assignment_school_scope.sql`
+The Mtoni scenario values remain marked as placeholders pending team review. Do not use them as approved classroom curriculum or realistic hydrology data until the owner reviews the values and objectives. Supabase's leaked-password protection remains an Auth Dashboard setting, and the database password still needs owner rotation and an update in the local root `.env`.
 
-The synthetic seed is applied: one demo school, two profiles, one class membership, one mission, and one scenario version. Mtoni is assigned to the demo class. One sandbox phone mapping points to the synthetic demo student using only a SHA-256 `phone_ref`; the raw phone is not stored. No simulation sessions or integration-test rows remain. Integration fixtures use generated synthetic identities and clean up only rows created by the test.
+LTI 1.3 is explicitly a later phase in the project specification; the prototype's launch context is simulated. Teacher progress aggregation is also outside the current API contract; the backend exposes assignment-scoped missions and learner reports. These items need product-owner scope before adding new APIs.
 
-## Assumptions and limits
+## Africa's Talking setup still needed for a provider-originated USSD session
 
-- All scenario quantities are fictional water units and budget credits. `backend/app/simulation/scenarios/mtoni_v1.json` is marked `placeholder - pending team review`; the six-week duration, initial reservoir/budget, inflows, demands, action costs/effects, thresholds, policies, and scripted events need team review before any classroom use.
-- Mission discovery and session creation are assignment-scoped; teachers manage assignments for their own same-school classes, and active students whose profile school matches the class school can read their assignments.
-- Session creation idempotency is per student and immutable mission version. Decision idempotency is per session; replay idempotency is per parent session. AI prompts scrub self-identification and school phrases, and output validation rejects numeric claims expressed as words as well as digits.
-- MVP turn advancement is combined with a decision; `/advance` returns `409`. Reasoning assessments are accepted only after mission completion and persist once per rubric version.
-- Africa's Talking callbacks require `WEBHOOK_TOKEN` through `X-Webhook-Token` or Bearer authorization, use the deterministic gateway, and do not call NVIDIA; frontend offline behavior is not implemented in this backend work.
-- The project's Auth JWKS reports ES256 and is used for JWT validation. Supabase security advisor reports leaked-password protection disabled.
-- The SQL MCP tool rejected database-role password changes; no password rotation was performed. Rotate the database password in the Supabase Dashboard and update the root `.env`.
+1. Keep Docker running and stop the existing ngrok tunnel with Ctrl+C.
+2. From the repository root, start the tunnel with the root `.env` token policy:
 
-## Delivery
+   ```powershell
+   powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\backend\scripts\start-ngrok.ps1
+   ```
 
-- Branch: `feature/lennox` (kept as the owner's renamed branch; no force-push or merge).
-- PR: [#2 — backend simulation and Supabase integration](https://github.com/Mihon-Community/MtaaLab/pull/2), open against `develop`; frontend-owner API-contract review is pending.
-- CI: [run 45217131824 passed](https://github.com/Mihon-Community/MtaaLab/actions/runs/45217131824) for backend, frontend, Docker, and secret-scan jobs.
-- Needs Lennox: rotate the database password and update the local root `.env`; enable leaked-password protection in Auth settings; review placeholder scenario values; review the documented API differences with the frontend owner. The root `.env` is ignored and is not part of the branch.
+3. In the Africa's Talking dashboard, set the sandbox service-code callback to `<PUBLIC_BASE_URL>/api/webhooks/africastalking/ussd`. Put the exact sandbox service code in `AT_USSD_SERVICE_CODE` and the test phone in `AT_ALLOWED_PHONES` in the root `.env` before restarting Docker.
+4. Keep the computer awake while using the Africa's Talking simulator. Its real callback flow still needs a provider-side test.
+
+No `.env` values or provider credentials are committed to this branch.
