@@ -28,19 +28,31 @@ class ScheduledEffect(StrictModel):
 class WorldState(StrictModel):
     """Canonical, bounded Mtoni state; service levels are shares in [0, 1]."""
 
-    current_turn: int = Field(ge=0)
+    current_turn: int = Field(default=0, ge=0)
     reservoir_level: float = Field(ge=0)
     reservoir_capacity: float = Field(gt=0)
     demand_by_sector: dict[Sector, float]
     leakage: float = Field(ge=0)
     budget_remaining: float = Field(ge=0)
     service_levels: dict[Sector, float]
-    unmet_demand_by_sector: dict[Sector, float]
+    unmet_demand_by_sector: dict[Sector, float] = Field(default_factory=dict)
     crop_health: float = Field(ge=0, le=100)
     wellbeing: float = Field(ge=0, le=100)
-    allocation_policy: str
+    allocation_policy: str = "balanced"
     used_actions: list[str] = Field(default_factory=list)
     pending_effects: list[ScheduledEffect] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_seed_state(cls, value: Any) -> Any:
+        """Fill newer contract fields when loading the original synthetic seed row."""
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        demand = normalized.get("demand_by_sector", {})
+        normalized.setdefault("unmet_demand_by_sector", {sector: 0 for sector in demand})
+        normalized.pop("rainfall_inflow", None)
+        return normalized
 
     @model_validator(mode="after")
     def validate_bounds(self) -> WorldState:
