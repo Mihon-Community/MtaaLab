@@ -11,7 +11,7 @@ The current schema has no mission-assignment table, so mission discovery lists a
 | `GET /api/health` | None | — | `{"status":"ok"}`; dependency-free health check. |
 | `GET /api/missions` | Bearer | — | Published missions, currently global because assignments are not represented in the schema. |
 | `GET /api/missions/{mission_id}` | Bearer | — | Published Mtoni brief, objectives, action catalogue, policies, units, and version metadata. |
-| `POST /api/simulations` | Bearer | `{ "mission_id": "uuid" }`; optional `Idempotency-Key` accepted | `201` with new session and initial state. Session-creation idempotency is not persisted yet; retries without client deduplication can create another session. |
+| `POST /api/simulations` | Bearer | `{ "mission_id": "uuid" }`; optional `Idempotency-Key` (1–128 characters) | `201` with session and initial state. The same key for the same student and immutable mission version returns the existing session. |
 | `GET /api/simulations/{id}/state` | Bearer | — | Current confirmed `{session_id, turn, status, state}`. |
 | `GET /api/simulations/{id}/history` | Bearer | Optional `limit` (1–100) and `offset` | Ordered persisted snapshots, actions, events, state hashes, and recorded AI feedback status. |
 | `POST /api/simulations/{id}/decisions` | Bearer student | Action object and mandatory `Idempotency-Key` | Confirmed engine state, events, accounting, and `ai_feedback_status`. The turn is committed before stakeholder feedback runs in a background task. Duplicate keys return the original turn. |
@@ -40,4 +40,4 @@ Stakeholder output is validated against a strict schema containing an approved `
 
 The API verifies JWT signature, expiry, issuer, and audience from the Supabase JWKS, then loads the role from the profile table. Each session operation checks ownership or assigned-teacher membership. The service locks the session row, checks the idempotency key and expected turn, validates the action, computes the deterministic engine result, and writes decision, events, snapshot, and current-session state in one transaction. A stale request returns `409`; only committed state is returned. AI work is separate and cannot roll back or block a turn.
 
-`POST /decisions` requires an idempotency key. `POST /replay` supports optional per-parent idempotency. Session creation accepts an optional key for forward compatibility but currently does not store it. On interrupted clients, display only the last confirmed state and retry a decision using the same key.
+`POST /decisions` requires an idempotency key. `POST /replay` supports optional per-parent idempotency. Session creation supports optional per-student, per-mission-version idempotency. On interrupted clients, display only the last confirmed state and retry a decision using the same key.

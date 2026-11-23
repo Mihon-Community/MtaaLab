@@ -60,7 +60,7 @@ The connected project has the initial schema, RLS/index hardening, replay idempo
 
 ## Scenario and API limits
 
-Scenario values use fictional water units and budget credits. `backend/app/simulation/scenarios/mtoni_v1.json` is explicitly marked placeholder pending team review. The current schema does not represent mission assignments, so published missions are visible globally to authenticated profiles; session data remains owner scoped. Session creation accepts an idempotency key but does not persist it yet. A separate no-action `/advance` is not supported; submitting a decision advances one turn. See `docs/API_CONTRACT.md` for exact request/response behavior and `docs/SIMULATION_RULES.md` for formulas.
+Scenario values use fictional water units and budget credits. `backend/app/simulation/scenarios/mtoni_v1.json` is explicitly marked placeholder pending team review. The current schema does not represent mission assignments, so published missions are visible globally to authenticated profiles; session data remains owner scoped. Session creation supports per-student, per-mission-version idempotency; decision keys are scoped to a session and replay keys to a parent session. A separate no-action `/advance` is not supported; submitting a decision advances one turn. See `docs/API_CONTRACT.md` for exact request/response behavior and `docs/SIMULATION_RULES.md` for formulas.
 
 ## MVP acceptance ownership
 

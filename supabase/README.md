@@ -9,6 +9,7 @@ These migrations have been applied to the connected project in order:
 1. `migrations/0001_initial_schema.sql` — initial application schema and RLS policies.
 2. `migrations/0002_rls_and_index_hardening.sql` — hardened internal policy helper, restricted its grants, added missing foreign-key indexes, and optimized policy identity calls.
 3. `migrations/0003_replay_idempotency.sql` — added an optional replay creation key and per-parent uniqueness.
+4. `migrations/0004_session_creation_idempotency.sql` — added unique per-student/per-version keys for original session creation.
 
 `seed.sql` has been applied with synthetic demo fixtures. It created a demo school, profiles, class/membership, mission, and scenario version. No synthetic simulation sessions or persistence-test rows remain. Persistence tests use uniquely identified fixtures and clean up only rows they create.
 
