@@ -9,6 +9,7 @@ on:
     branches: [main, develop, 'feature/**']
   pull_request:
     branches: [main, develop, 'feature/**']
+    types: [opened, synchronize, reopened, ready_for_review]
 
 concurrency:
   group: ci-${{ github.ref }}
