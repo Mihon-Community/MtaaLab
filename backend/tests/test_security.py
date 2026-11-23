@@ -11,11 +11,14 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
+from fastapi.testclient import TestClient
 
 from app.api import auth
+from app.api.dependencies import get_simulation_gateway
 from app.config import settings
-from app.security import permissions
+from app.main import app
 from app.security.jwt import verify_supabase_token
+from app.simulation.service import SessionNotFoundError, SimulationService
 
 TEST_ISSUER = "https://mtaalab-test.supabase.co/auth/v1"
 TEST_SUBJECT = UUID("00000000-0000-4000-8000-000000000102")
@@ -139,14 +142,31 @@ def test_current_user_uses_database_profile_for_role(monkeypatch: pytest.MonkeyP
     assert context.school_id is not None
 
 
-def test_student_cannot_access_another_students_session() -> None:
+def test_student_cannot_access_another_students_session_through_api() -> None:
     user = auth.CurrentUser(id=TEST_SUBJECT, role="student", school_id=uuid4())
     foreign_session = SimpleNamespace(student_id=uuid4())
-    fake_db = SimpleNamespace(get=lambda *_args: foreign_session)
 
-    with pytest.raises(HTTPException) as result:
-        permissions.get_authorized_session(fake_db, user, uuid4())  # type: ignore[arg-type]
-    assert result.value.status_code == 404
+    class FakeDatabase:
+        scalar_calls = 0
+
+        def scalar(self, _query):
+            self.scalar_calls += 1
+            return foreign_session if self.scalar_calls == 1 else None
+
+    fake_db = FakeDatabase()
+    service = SimulationService(fake_db)  # type: ignore[arg-type]
+    assert isinstance(service, SimulationService)
+    app.dependency_overrides[auth.get_current_user] = lambda: user
+    app.dependency_overrides[get_simulation_gateway] = lambda: service
+    try:
+        response = TestClient(app).get(f"/api/simulations/{uuid4()}/state")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Resource not found"}
+    with pytest.raises(SessionNotFoundError):
+        service.get_state(uuid4(), user.id)
 
 
 @pytest.mark.integration
