@@ -110,3 +110,4 @@ class TurnResult(StrictModel):
     state: WorldState
     events: list[Event] = Field(default_factory=list)
     water_accounting: WaterAccounting
+    idempotent_replay: bool = False
