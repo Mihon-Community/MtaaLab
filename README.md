@@ -10,9 +10,27 @@ MtaaLab is a simulation-first learning platform where K–12 students explore a 
 - NVIDIA NIM provides bounded, validated dialogue and learning feedback; it never computes numeric outcomes.
 - Africa's Talking provides sandbox SMS and a constrained USSD participation channel.
 
-The browser renders confirmed FastAPI state. The turn transaction stores the decision, events, snapshot, and session pointer atomically. Provider credentials remain backend-only. Supabase has not been connected and the checked-in migration has not been applied.
+The browser renders confirmed FastAPI state. The turn transaction stores the decision, events, snapshot, and session pointer atomically. Provider credentials remain backend-only. Supabase migrations are maintained under `supabase/migrations/`; configure the root `.env` with the project's connection details before using database-backed routes. The health endpoint only confirms that FastAPI is running.
 
-## Quick start
+## Quick start with Docker
+
+Install Docker Desktop, make sure the root `.env` is present, then run this from the repository root:
+
+```powershell
+docker compose up --build
+```
+
+Compose builds and starts the FastAPI backend and the React frontend. Open:
+
+- Frontend: <http://localhost:5173>
+- API docs: <http://localhost:8000/docs>
+- Health: <http://localhost:8000/api/health>
+
+The frontend sends `/api` requests through its Nginx proxy to the backend container. Only the public `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` values are passed into the frontend build; backend secrets stay in the backend container. Press `Ctrl+C` to stop the foreground stack, or run `docker compose down` from another terminal.
+
+To rebuild after changing frontend environment values, run `docker compose up --build` again. The backend reads the root `.env` when its container starts.
+
+## Run without Docker
 
 Backend (Python 3.12):
 
