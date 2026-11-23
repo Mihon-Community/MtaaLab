@@ -17,24 +17,25 @@ The browser renders confirmed FastAPI state. The turn transaction stores the dec
 Backend (Python 3.12):
 
 ```powershell
+Copy-Item .env.example .env
 cd backend
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements-dev.txt
-Copy-Item .env.example .env
 uvicorn app.main:app --reload
 ```
 
-macOS/Linux: `python3.12 -m venv .venv && source .venv/bin/activate`; then install the same requirements and run `uvicorn app.main:app --reload`.
+macOS/Linux: copy the root `.env.example` to `.env`, then run `python3.12 -m venv .venv && source .venv/bin/activate`; install the same requirements and run `uvicorn app.main:app --reload`.
 
 Frontend (Node 22; see `.nvmrc`):
 
 ```sh
 cd frontend
 npm ci
-cp .env.example .env
 npm run dev
 ```
+
+Both apps read the one root `.env`. The per-app `.env.example` files are reference templates; do not create separate per-app `.env` files.
 
 The apps start without provider credentials. Health check: `http://localhost:8000/api/health`. Product modules are stubs with TODOs and do not yet implement the mission.
 

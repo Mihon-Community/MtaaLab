@@ -9,15 +9,15 @@ Developer 2 owns `feature/lennx` (the task's branch-ownership header also says `
 Use Python 3.12. From repository root:
 
 ```powershell
+Copy-Item .env.example .env
 cd backend
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements-dev.txt
-Copy-Item .env.example .env
 uvicorn app.main:app --reload
 ```
 
-macOS/Linux: `python3.12 -m venv .venv`, `source .venv/bin/activate`, `pip install -r requirements-dev.txt`, copy `.env.example` to `.env`, then `uvicorn app.main:app --reload`. The app boots with empty secrets. Run `pytest -q`, `ruff check .`, and `ruff format --check .` from `backend/`. Health is `GET http://localhost:8000/api/health`.
+macOS/Linux: copy the root `.env.example` to `.env`, then run `python3.12 -m venv .venv`, `source .venv/bin/activate`, `pip install -r requirements-dev.txt`, and `uvicorn app.main:app --reload`. Both apps read the root `.env`; do not create nested `.env` files. The app boots with empty secrets. Run `pytest -q`, `ruff check .`, and `ruff format --check .` from `backend/`. Health is `GET http://localhost:8000/api/health`.
 
 ## Folder map
 
