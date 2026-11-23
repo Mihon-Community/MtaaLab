@@ -35,7 +35,7 @@ npm ci
 npm run dev
 ```
 
-Both apps read the one root `.env`. The per-app `.env.example` files are reference templates; do not create separate per-app `.env` files.
+Both apps read the single root `.env`, created from the single root `.env.example`.
 
 The apps start without provider credentials. Health check: `http://localhost:8000/api/health`. Product modules are stubs with TODOs and do not yet implement the mission.
 

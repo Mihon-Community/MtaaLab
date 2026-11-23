@@ -18,3 +18,4 @@ coverage/
 *.log
 frontend/.vite/
 frontend/src/types/database.ts
+supabase/.temp/

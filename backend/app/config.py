@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
     nvidia_model: str = "nvidia/nemotron-3.5-lightning-30b-a3b"
     supabase_url: str | None = None
+    supabase_jwks_url: str | None = None
     supabase_secret_key: str | None = None
     supabase_db_url: str | None = None
     at_username: str = "sandbox"
