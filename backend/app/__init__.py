@@ -1,0 +1,1 @@
+"""MtaaLab FastAPI application package."""

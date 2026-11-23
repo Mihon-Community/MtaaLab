@@ -1,0 +1,17 @@
+{
+  "name": "MtaaLab - The Living World Simulator",
+  "short_name": "MtaaLab",
+  "description": "A simulation-first learning platform.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f8f6",
+  "theme_color": "#0b5d58",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
