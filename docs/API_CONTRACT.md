@@ -1,24 +1,24 @@
 # Shared API contract
 
-This is the shared frontend/backend contract transcribed from specification §9. Routes are scaffold targets, not implemented yet. **Any change requires a PR reviewed by both developers.** Numeric values in the spec's decision example are illustrative only. All authenticated routes use `Authorization: Bearer <Supabase access token>`. Student access is owner-scoped; teacher access requires assignment/class authorization. Writes that advance work accept `Idempotency-Key` and reject stale `expected_turn` values.
+This document describes the FastAPI surface for the Mtoni MVP. Authenticated routes require `Authorization: Bearer <Supabase access token>`. The API derives role and school from `public.profiles`; the client cannot select an identity or authoritative state. Students see missions assigned to an active class membership. Teachers see missions assigned to their classes. Student session reads and writes are owner-scoped. Assigned-teacher reads use class membership. Denials for session ownership return `404` so callers cannot discover another learner's records.
 
 ## Endpoints
 
-| Method and route | Auth | Request | Response | Errors and retry notes |
-|---|---|---|---|---|
-| `GET /api/health` | None | — | `{"status":"ok"}` | `500`; safe to retry. |
-| `GET /api/missions` | Bearer | — | Published missions assigned to learner/class | `401`, `403`; read only. |
-| `GET /api/missions/{mission_id}` | Bearer | — | Approved brief and immutable scenario version metadata | `401`, `403`, `404`; read only. |
-| `POST /api/simulations` | Bearer | `{ "mission_id": "uuid" }` | `{ "session_id": "uuid", "turn": 0, "state": {…} }` | `401`, `403`, `404`, `409`; idempotency key recommended to avoid duplicate sessions. |
-| `GET /api/simulations/{id}/state` | Bearer | — | Current last-confirmed `{session_id, turn, state, status}` | `401`, `403`, `404`; safe to retry. |
-| `POST /api/simulations/{id}/decisions` | Bearer | `{"action_type":"repair_main_pipe","parameters":{},"expected_turn":2}` | `{"session_id":"uuid","turn":3,"accepted":true,"state":{…},"events":[],"ai_feedback_status":"pending"}` | `400` invalid action, `401`, `403`, `404`, `409` stale turn, `422` malformed input. Idempotency key mandatory; duplicate returns original result. |
-| `POST /api/simulations/{id}/advance` | Bearer | `{"expected_turn":2}` if a separate advance control is used | Confirmed state, accepted action/event/timeline result | `400`, `401`, `403`, `404`, `409`; idempotency key mandatory. MVP may combine with decisions. |
-| `GET /api/simulations/{id}/history` | Bearer | Optional pagination cursor/limit | Ordered decisions, events, and state snapshots | `401`, `403`, `404`, `422`; read only. |
-| `POST /api/simulations/{id}/replay` | Bearer | Optional replay label | New `session_id`, same scenario version and initial state | `401`, `403`, `404`, `409`; idempotency key prevents duplicate alternative runs. Never overwrites source run. |
-| `POST /api/simulations/{id}/debrief` | Bearer | Optional student explanation | Persisted validated debrief or factual fallback | `401`, `403`, `404`, `422`, `503` only if no safe fallback can be produced. Idempotency key recommended. |
-| `GET /api/simulations/{id}/report` | Bearer | — | Report, outcomes, and assessment evidence | `401`, `403`, `404`; read only. Student sees own; assigned teacher sees permitted learners. |
-| `POST /api/webhooks/africastalking/ussd` | Provider callback validation; no browser JWT | Form fields: `sessionId`, `serviceCode`, `phoneNumber`, `text` | Plain text beginning `CON ` to continue or `END ` to terminate | `400` malformed, `403` rejected association, `404` unknown session, `429` rate limit. Deduplicate provider session/input; retries must not apply a turn twice. |
-| `POST /api/webhooks/africastalking/sms-status` | Provider callback validation | Provider delivery fields | Recorded status acknowledgment | `400`, `403`; optional route only if enabled in sandbox. Idempotent by provider message ID. |
+| Method and route | Auth | Request | Response and current behavior |
+|---|---|---|---|
+| `GET /api/health` | None | — | `{"status":"ok"}`; dependency-free health check. |
+| `GET /api/missions` | Bearer | — | Published missions assigned to the caller's class or active class membership. No matching assignment returns an empty list. |
+| `GET /api/missions/{mission_id}` | Bearer | — | Assigned, published Mtoni brief, objectives, action catalogue, policies, units, and version metadata. Unassigned missions return `404`. |
+| `POST /api/simulations` | Bearer | `{ "mission_id": "uuid" }`; optional `Idempotency-Key` (1–128 characters) | `201` with session and initial state. The same key for the same student and immutable mission version returns the existing session; the mission must be assigned to the caller. |
+| `GET /api/simulations/{id}/state` | Bearer | — | Current confirmed `{session_id, turn, status, state}`. |
+| `GET /api/simulations/{id}/history` | Bearer | Optional `limit` (1–100) and `offset` | Ordered persisted snapshots, actions, events, state hashes, and recorded AI feedback status. |
+| `POST /api/simulations/{id}/decisions` | Bearer student | Action object and mandatory `Idempotency-Key` | Confirmed engine state, events, accounting, and `ai_feedback_status`. The turn is committed before stakeholder feedback runs in a background task. Duplicate keys return the original turn. |
+| `POST /api/simulations/{id}/advance` | Bearer | `{ "expected_turn": n }` and mandatory `Idempotency-Key` | `409`: MVP advances by submitting a decision, so a separate no-action advance is not supported. |
+| `POST /api/simulations/{id}/replay` | Bearer | Optional label and optional `Idempotency-Key` | New child session at the source's persisted initial state and same scenario version. Replay key is deduplicated per source session. Original session is unchanged. |
+| `POST /api/simulations/{id}/debrief` | Bearer | Optional `{ "student_explanation": "..." }` (max 2,000 characters) | Validated debrief and optional qualitative reasoning assessment. An explanation is assessed only after the mission is completed (`409` otherwise). A validated assessment is persisted once per session and rubric version. Safe factual feedback is returned when AI is unavailable. |
+| `GET /api/simulations/{id}/report` | Bearer | — | Report assembled from authorized current state and persisted actions/events; includes the latest persisted reasoning assessment when available. |
+| `POST /api/webhooks/africastalking/ussd` | `X-Webhook-Token` or `Authorization: Bearer` | `application/x-www-form-urlencoded`: `sessionId` (1–128), `serviceCode` (1–64), `phoneNumber` (1–32), `text` (0–500), `networkCode` (max 64; may be empty). | `200 text/plain`, at most 160 characters, beginning `CON ` or `END `. Uses an allowlisted SHA-256 phone reference mapped to the synthetic demo learner, creates or resumes that learner's active Mtoni session, and submits validated choices through the existing deterministic simulation service. No NVIDIA request is made in the callback. Repeated provider session/text pairs return the stored response without applying another decision. |
+| `POST /api/webhooks/africastalking/sms-status` | `X-Webhook-Token` or `Authorization: Bearer` | `application/x-www-form-urlencoded`: `id` (1–128), `status` (1–64), optional `phoneNumber` (max 32), `networkCode` (max 64), and `failureReason` (max 160). | `200` `{ "status": "accepted" }`. Delivery status is upserted by provider message ID; repeated callbacks update the same delivery record. |
 
 ## Decision shape
 
@@ -26,25 +26,26 @@ This is the shared frontend/backend contract transcribed from specification §9.
 {
   "action_type": "repair_main_pipe",
   "parameters": {},
-  "expected_turn": 2
+  "expected_turn": 0
 }
 ```
 
-Response shape (values below are examples, never production constants):
+Decision response includes `session_id`, the resulting `turn`, `accepted`, the complete confirmed state, scripted events, `water_accounting`, and `ai_feedback_status`. Water units and budget credits are fictional scenario values, never model output.
 
-```json
-{
-  "session_id": "00000000-0000-4000-8000-000000000001",
-  "turn": 3,
-  "accepted": true,
-  "state": { "reservoir_level": 0, "budget_remaining": 0 },
-  "events": [],
-  "ai_feedback_status": "pending"
-}
-```
+Stakeholder output is validated against a strict schema containing an approved `actor_id`, bounded message, `referenced_facts`, and optional question. Actors and fact keys are allowlisted, direct identifiers are scrubbed before prompting, and output is length-limited. Invalid output uses approved static dialogue. The model cannot set action costs or simulation values.
 
-Stakeholder output is validated against `{ "actor_id": string, "message": string, "referenced_facts": string[], "suggested_question": string }`. The actor and referenced facts must be allowlisted, output is length-limited, and invalid output uses an approved static fallback. The model cannot return action costs or changed simulation values.
+## Authorization, transactions, and retries
 
-## Shared transaction and error rules
+The API verifies JWT signature, expiry, issuer, and audience from the Supabase JWKS, then loads the role from the profile table. Each session operation checks ownership or assigned-teacher membership. The service locks the session row, checks the idempotency key and expected turn, validates the action, computes the deterministic engine result, and writes decision, events, snapshot, and current-session state in one transaction. A stale request returns `409`; only committed state is returned. AI work is separate and cannot roll back or block a turn.
 
-Authenticate and authorize, check key and expected version, validate action/prerequisites/budget, run the deterministic engine, then atomically write decision + events + snapshot + session pointer. Only return accepted state after commit. Concurrent stale writes return `409`; clients keep the last confirmed state and may fetch it again. AI feedback runs separately and never blocks a simulation turn.
+Mission assignments are unique per class and mission. RLS allows a teacher to manage assignments only in their own school-scoped classes, and exposes an assignment only to active members whose profile school matches that class. Africa's Talking callbacks use server-side sessions with a 180-second idle expiry and bounded form fields. A configured service-code mismatch returns `403`; missing or oversized fields return `400`; a disallowed or unmapped phone receives a short `END` response. The raw phone is not stored. The demo mapping is keyed by SHA-256 of `AT_TEST_PHONE` and points only to the synthetic demo student. `AT_ALLOWED_PHONES`, when set, is a comma-separated allowlist. `RATE_LIMIT_PER_MINUTE` defaults to 60 when left empty.
+
+Both provider callbacks require the root `WEBHOOK_TOKEN`, supplied as `X-Webhook-Token` or a Bearer token. An unset server token returns `503`; a missing or incorrect request token returns `401`. The token is compared in constant time and is never logged. SMS callback logs contain provider ID, status, and a bounded error code; phone numbers and API keys are never logged. Outbound SMS uses the sandbox only, is limited to 160 characters, and contains no grades or learner identifiers. A sandbox provider response is not proof of handset delivery.
+
+Webhook error bodies use FastAPI's `{ "detail": "..." }` shape: `400` for missing or oversized form fields, `401` for a missing or incorrect token, `403` for a configured USSD service-code mismatch, `429` when the per-minute callback limit is exceeded, and `503` if authentication is not configured or a delivery status cannot be persisted. These validation failures do not submit a decision. A valid but disallowed or unmapped phone gets `200 text/plain` with a polite `END ` message.
+
+The USSD provider's `text` field is cumulative and is split on `*`. An empty value starts at the main menu, which shows the current turn, reservoir, and budget before choices: `1` repair, `2` conservation, `3` allocation, `4` inspect sector needs, and `0` exit. Repair and conservation show the configured scenario cost before confirmation; allocation offers only the scenario's preset policies. A valid screen is at most 160 characters. Invalid input repeats the current menu with an `Invalid choice.` message. Completion returns an `END` summary and queues a short sandbox SMS.
+
+The outbound SMS helper returns a `SmsResult` object: `{ "status": "sent" | "failed" | "not_configured", "provider_message_id": "optional", "error_code": "optional" }`. Missing `AT_API_KEY` returns `not_configured` without raising; no SMS is sent by CI.
+
+`POST /decisions` requires an idempotency key. `POST /replay` supports optional per-parent idempotency. Session creation supports optional per-student, per-mission-version idempotency. On interrupted clients, display only the last confirmed state and retry a decision using the same key.

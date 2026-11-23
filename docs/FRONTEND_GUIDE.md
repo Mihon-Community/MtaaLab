@@ -11,11 +11,10 @@ Use Node 22 LTS, pinned by root `../.nvmrc` (CI reads `frontend/.nvmrc`):
 ```sh
 cd frontend
 npm ci
-cp .env.example .env
 npm run dev
 ```
 
-Windows PowerShell: `Copy-Item .env.example .env`. Checks: `npm run test`, `npm run lint`, `npm run typecheck`, `npm run build`, and `npm run format:check`. `.env.example` values can remain placeholders; the Supabase client is lazy and returns null until real public config is set.
+From the repository root, create the one local file with `cp .env.example .env` (PowerShell: `Copy-Item .env.example .env`). Vite reads that root file; do not create a second `frontend/.env`. Checks: `npm run test`, `npm run lint`, `npm run typecheck`, `npm run build`, and `npm run format:check`. Values can remain placeholders; the Supabase client is lazy and returns null until real public config is set.
 
 ## Folder map and rendering boundary
 
