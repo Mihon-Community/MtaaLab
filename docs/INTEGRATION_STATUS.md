@@ -71,5 +71,5 @@ The synthetic seed is applied: one demo school, two profiles, one class membersh
 
 - Branch: `feature/lennox` (kept as the owner's renamed branch; no force-push or merge).
 - PR: [#2 — backend simulation and Supabase integration](https://github.com/Mihon-Community/MtaaLab/pull/2), open as draft against `develop`.
-- CI: [run 45197300054 passed](https://github.com/Mihon-Community/MtaaLab/actions/runs/45197300054) for backend, frontend, Docker, and secret-scan jobs. The pull request remains unmerged; frontend-owner API-contract review is pending.
+- CI: [run 45197670182 passed](https://github.com/Mihon-Community/MtaaLab/actions/runs/45197670182) for backend, frontend, Docker, and secret-scan jobs. The pull request remains unmerged; frontend-owner API-contract review is pending.
 - Needs Lennox: rotate the database password and update the local root `.env`; enable leaked-password protection in Auth settings; review placeholder scenario values; review the documented API differences with the frontend owner. The root `.env` is ignored and is not part of the branch.
