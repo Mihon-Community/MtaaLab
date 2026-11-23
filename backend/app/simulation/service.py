@@ -147,7 +147,7 @@ class SimulationService:
         profile = self.db.get(Profile, user_id)
         if profile is None or profile.role != "student":
             raise MissionNotFoundError("Published mission not found")
-        published = MissionRepository(self.db).get_published(mission_id)
+        published = MissionRepository(self.db).get_published_for_user(mission_id, user_id)
         if published is None:
             raise MissionNotFoundError("Published mission not found")
         _, version = published

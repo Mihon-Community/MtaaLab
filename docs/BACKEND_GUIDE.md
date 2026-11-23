@@ -2,7 +2,7 @@
 
 ## Scope and ownership
 
-The backend owns authenticated Mtoni mission and simulation APIs, deterministic turn calculations, persistence, history, replay, and guarded NVIDIA feedback. Africa's Talking routes and frontend integration are not part of this backend integration. Current work is on `feature/lennox`; the frontend branch remains `feature/steve`.
+The backend owns authenticated Mtoni mission and simulation APIs, deterministic turn calculations, persistence, history, replay, guarded NVIDIA feedback, assignment-scoped mission access, and Africa's Talking sandbox callbacks. Frontend integration remains out of scope. Current work is on `feature/lennox`; the frontend branch remains `feature/steve`.
 
 ## Local setup
 
@@ -37,11 +37,13 @@ They require a reachable `SUPABASE_DB_URL`. The current development runner canno
 
 ## Code map
 
-- `app/api/`: JWT-backed profile dependency, mission discovery, simulations, decisions, reports, and health.
+- `app/api/`: JWT-backed profile dependency, mission discovery, simulations, decisions, reports, health, and Africa's Talking callbacks.
 - `app/simulation/engine.py`: deterministic turn orchestration; `world_state.py`: bounded state and result models; `allocation_rules.py`: explicit water policy; `action_validator.py`: ranges, costs, and prerequisites; `event_catalogue.py`: scripted events; `service.py`: transactional PostgreSQL gateway; `replay.py`: isolated child sessions.
 - `app/ai/`: configurable NVIDIA NIM client, stakeholder dialogue, reasoning evaluation, debrief, strict output schemas, and prompts.
 - `app/db/`: SQLAlchemy models, repositories, connection/session helpers. SQL migrations are in `supabase/migrations/`.
-- `app/security/`: Supabase JWKS JWT validation and authorization helpers.
+- `app/integrations/africas_talking/`: bounded USSD menu transitions, SMS delivery, and callback orchestration over the shared simulation service.
+- `app/learning/`: idempotent persistence and report serialization for qualitative assessments.
+- `app/security/`: Supabase JWKS JWT validation, authorization helpers, and public webhook rate limiting.
 - `tests/`: engine and API unit tests, persistence integration checks, auth tests, AI fallback tests, and optional live NIM smoke test.
 
 ## Invariants
@@ -53,15 +55,19 @@ They require a reachable `SUPABASE_DB_URL`. The current development runner canno
 - Validate NIM output with Pydantic; enforce actor and fact allowlists and length limits; use safe static/factual fallbacks. AI failure does not block a turn.
 - Keep names, phone numbers, school IDs, prompts, and hidden reasoning out of AI audit records. Only validated output and operational metadata are stored.
 - RLS stays enabled. Browser roles cannot write authoritative simulation data.
+- Mission discovery and session creation require an assignment to one of the learner's active classes; teachers may manage assignments only in their own school-scoped classes.
+- USSD input is parsed as a bounded cumulative path and submitted through the same deterministic simulation gateway as the PWA. The callback stores only a hashed phone reference, uses a 180-second menu expiry, and replays a stored response for a duplicate request. It never calls NVIDIA.
+- Outbound sandbox SMS is lazy-initialized, limited to 160 characters, and persisted to `delivery_logs`; the test-send script is manual only and is not run by CI.
+- A qualitative assessment is only created after mission completion and is unique per session and rubric version.
 
 ## Supabase status
 
-The connected project has the initial schema, RLS/index hardening, replay idempotency migration, and synthetic seed applied. See `supabase/README.md` and `docs/INTEGRATION_STATUS.md`. The Supabase security advisor currently reports leaked-password protection disabled; this is an Auth Dashboard setting. A database password rotation also remains for the project owner because the available MCP SQL tool rejected role password changes.
+The connected project has migrations 0001-0006, including assignment/mobile callback storage and same-school assignment read policy, applied. The synthetic Mtoni mission is assigned to its demo class, and one synthetic phone mapping stores only the SHA-256 reference. See `supabase/README.md` and `docs/INTEGRATION_STATUS.md`. The Supabase security advisor currently reports leaked-password protection disabled; this is an Auth Dashboard setting. A database password rotation also remains for the project owner because the available MCP SQL tool rejected role password changes.
 
 ## Scenario and API limits
 
-Scenario values use fictional water units and budget credits. `backend/app/simulation/scenarios/mtoni_v1.json` is explicitly marked placeholder pending team review. The current schema does not represent mission assignments, so published missions are visible globally to authenticated profiles; session data remains owner scoped. Session creation supports per-student, per-mission-version idempotency; decision keys are scoped to a session and replay keys to a parent session. A separate no-action `/advance` is not supported; submitting a decision advances one turn. See `docs/API_CONTRACT.md` for exact request/response behavior and `docs/SIMULATION_RULES.md` for formulas.
+Scenario values use fictional water units and budget credits. `backend/app/simulation/scenarios/mtoni_v1.json` is explicitly marked placeholder pending team review. Mission discovery and session creation are assignment-scoped. Session creation supports per-student, per-mission-version idempotency; decision keys are scoped to a session and replay keys to a parent session. A separate no-action `/advance` is not supported; submitting a decision advances one turn. See `docs/API_CONTRACT.md` for exact request/response behavior and `docs/SIMULATION_RULES.md` for formulas.
 
 ## MVP acceptance ownership
 
-The backend work covers SIM-01..06, AI-01..03, DB-01..02, and REP-01 to the status recorded in `docs/INTEGRATION_STATUS.md`. AT-01..03 are explicitly out of scope and remain not done. MOB-01 is only covered at the server idempotency boundary; frontend offline/reconnect behavior is not implemented here.
+The backend work covers SIM-01..06, AI-01..03, DB-01..02, REP-01, AT-01..03, and the server side of MOB-01 to the status recorded in `docs/INTEGRATION_STATUS.md`. Frontend offline/reconnect behavior is not implemented here. No real handset SMS delivery has been verified.

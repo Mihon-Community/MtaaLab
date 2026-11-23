@@ -9,11 +9,19 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.ai.debrief_service import create_debrief
+from app.ai.nvidia_client import redact_direct_pii
 from app.ai.reasoning_evaluator import evaluate_reasoning
+from app.ai.schemas import ReasoningAssessment
 from app.api.auth import CurrentUser, get_current_user
 from app.api.dependencies import get_ai_interaction_recorder, get_simulation_gateway
 from app.api.errors import simulation_http_error
 from app.api.schemas import DebriefRequest, DebriefResponse, ReportResponse
+from app.learning.assessment_service import (
+    assessment_report,
+    get_assessment,
+    get_latest_assessment,
+    persist_assessment,
+)
 from app.simulation.gateway import SimulationGateway
 
 router = APIRouter(prefix="/api/simulations", tags=["reports"])
@@ -30,7 +38,7 @@ def _bound_recorder(
             turn=turn,
             task_type=item["task_type"],
             model_id=item["model_id"],
-            output=item["output"],
+            output=redact_direct_pii(item["output"]),
             validation_status=item["validation_status"],
             latency_ms=item["latency_ms"],
         )
@@ -48,6 +56,8 @@ def get_report(
     try:
         state_record = gateway.get_state(session_id, user.id)
         timeline = gateway.history(session_id, user.id, limit=100, offset=0)
+        db = getattr(gateway, "db", None)
+        assessment_row = get_latest_assessment(db, session_id) if db is not None else None
         state = state_record["state"]
         entries = timeline["entries"]
         return ReportResponse(
@@ -66,7 +76,7 @@ def get_report(
             },
             decisions=[entry["action"] for entry in entries if entry.get("action")],
             events=[event for entry in entries for event in entry.get("events", [])],
-            assessment=None,
+            assessment=assessment_report(assessment_row),
         )
     except HTTPException:
         raise
@@ -88,13 +98,45 @@ def create_session_debrief(
         latest_turn = max((entry["turn"] for entry in timeline["entries"]), default=0)
         callback = _bound_recorder(recorder, session_id, latest_turn)
 
-        reasoning_result = None
+        db = getattr(gateway, "db", None)
+        reasoning_assessment: dict[str, Any] | None = None
+        reasoning_status: str | None = None
         if request is not None and request.student_explanation:
-            reasoning_result = evaluate_reasoning(
-                request.student_explanation,
-                {"entries": timeline["entries"]},
-                record_interaction=callback,
-            )
+            session_state = gateway.get_state(session_id, user.id)
+            if session_state["status"] != "completed":
+                raise HTTPException(
+                    status_code=409,
+                    detail="Reasoning assessment is available after mission completion",
+                )
+            existing = get_assessment(db, session_id) if db is not None else None
+            if existing is not None:
+                report_value = assessment_report(existing) or {}
+                reasoning_assessment = report_value.get("feedback")
+                reasoning_status = report_value.get("ai_feedback_status")
+            else:
+                reasoning_result = evaluate_reasoning(
+                    request.student_explanation,
+                    {"entries": timeline["entries"]},
+                    record_interaction=callback,
+                )
+                safe_output = ReasoningAssessment.model_validate(
+                    redact_direct_pii(reasoning_result.output.model_dump(mode="json"))
+                )
+                if db is not None:
+                    saved = persist_assessment(
+                        db,
+                        session_id=session_id,
+                        evidence={"entries": timeline["entries"]},
+                        assessment=safe_output,
+                        source=reasoning_result.source,
+                        ai_feedback_status=reasoning_result.status,
+                    )
+                    saved_report = assessment_report(saved) or {}
+                    reasoning_assessment = saved_report.get("feedback")
+                    reasoning_status = saved_report.get("ai_feedback_status")
+                else:
+                    reasoning_assessment = safe_output.model_dump(mode="json")
+                    reasoning_status = reasoning_result.status
 
         debrief_result = create_debrief(
             timeline,
@@ -102,9 +144,9 @@ def create_session_debrief(
         )
         debrief = debrief_result.output.model_dump(mode="json")
         statuses = [debrief_result.status]
-        if reasoning_result is not None:
-            debrief["reasoning_assessment"] = reasoning_result.output.model_dump(mode="json")
-            statuses.append(reasoning_result.status)
+        if reasoning_assessment is not None:
+            debrief["reasoning_assessment"] = reasoning_assessment
+            statuses.append(reasoning_status or "ai_unavailable")
         overall_status = (
             "available" if all(item == "available" for item in statuses) else "ai_unavailable"
         )

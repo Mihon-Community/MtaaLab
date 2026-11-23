@@ -117,8 +117,9 @@ def test_session_create_idempotency_returns_existing_session(monkeypatch) -> Non
         def __init__(self, _db):
             pass
 
-        def get_published(self, requested_mission_id):
+        def get_published_for_user(self, requested_mission_id, requested_user_id):
             assert requested_mission_id == mission_id
+            assert requested_user_id == user_id
             return SimpleNamespace(id=mission_id), version
 
     class FakeCreationRepository:

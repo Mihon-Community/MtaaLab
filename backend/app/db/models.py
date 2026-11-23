@@ -6,7 +6,18 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, Uuid
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -86,6 +97,49 @@ class Mission(Base):
     status: Mapped[str] = mapped_column(String, nullable=False, default="draft")
     published_version_id: Mapped[UUID | None] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("public.scenario_versions.id")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class MissionAssignment(Base):
+    __tablename__ = "mission_assignments"
+    __table_args__ = (
+        UniqueConstraint(
+            "class_id", "mission_id", name="mission_assignments_class_id_mission_id_key"
+        ),
+        Index("mission_assignments_mission_id_idx", "mission_id"),
+        Index("mission_assignments_assigned_by_idx", "assigned_by"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
+    )
+    class_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("public.classes.id", ondelete="CASCADE"), nullable=False
+    )
+    mission_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("public.missions.id", ondelete="CASCADE"), nullable=False
+    )
+    assigned_by: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("public.profiles.id", ondelete="RESTRICT"), nullable=False
+    )
+    assigned_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class SandboxPhoneMapping(Base):
+    __tablename__ = "sandbox_phone_mappings"
+    __table_args__ = (
+        CheckConstraint(
+            "phone_ref ~ '^[a-f0-9]{64}$'", name="sandbox_phone_mappings_phone_ref_check"
+        ),
+        Index("sandbox_phone_mappings_student_id_idx", "student_id"),
+    )
+
+    phone_ref: Mapped[str] = mapped_column(Text, primary_key=True)
+    student_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("public.profiles.id", ondelete="CASCADE"), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -203,6 +257,14 @@ class AIInteraction(Base):
 
 class LearningAssessment(Base):
     __tablename__ = "learning_assessments"
+    __table_args__ = (
+        Index(
+            "learning_assessments_session_rubric_version_uidx",
+            "session_id",
+            "rubric_version",
+            unique=True,
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
     session_id: Mapped[UUID] = mapped_column(
@@ -214,4 +276,55 @@ class LearningAssessment(Base):
     evidence: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     feedback: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     teacher_review_status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class MobileSession(Base):
+    __tablename__ = "mobile_sessions"
+    __table_args__ = (
+        UniqueConstraint("provider_session_id", name="mobile_sessions_provider_session_id_key"),
+        Index("mobile_sessions_session_expiry_idx", "session_id", "expires_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
+    )
+    provider_session_id: Mapped[str] = mapped_column(Text, nullable=False)
+    phone_ref: Mapped[str] = mapped_column(Text, nullable=False)
+    session_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("public.simulation_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    current_menu: Mapped[str] = mapped_column(Text, nullable=False)
+    state: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_request_key: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class DeliveryLog(Base):
+    __tablename__ = "delivery_logs"
+    __table_args__ = (
+        Index(
+            "delivery_logs_provider_message_id_uidx",
+            "provider_message_id",
+            unique=True,
+            postgresql_where=text("provider_message_id IS NOT NULL"),
+        ),
+        Index("delivery_logs_session_idx", "session_id", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
+    )
+    session_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("public.simulation_sessions.id", ondelete="SET NULL"),
+    )
+    channel: Mapped[str] = mapped_column(Text, nullable=False)
+    recipient_ref: Mapped[str] = mapped_column(Text, nullable=False)
+    provider_message_id: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    error_code: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -129,11 +129,16 @@ class FakeMissionRepository:
             rules_version="placeholder-v1",
         )
 
-    def list_published(self):
+    def list_published(self, user_id: UUID):
+        assert user_id == USER_ID
         return [self.mission]
 
     def get_published(self, mission_id: UUID):
         return (self.mission, self.version) if mission_id == MISSION_ID else None
+
+    def get_published_for_user(self, mission_id: UUID, user_id: UUID):
+        assert user_id == USER_ID
+        return self.get_published(mission_id)
 
 
 @pytest.fixture

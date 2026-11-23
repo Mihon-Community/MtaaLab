@@ -8,6 +8,7 @@ from app.api.missions import router as missions_router
 from app.api.reports import router as reports_router
 from app.api.schemas import HealthResponse
 from app.api.simulations import router as simulations_router
+from app.api.webhooks import router as webhooks_router
 from app.config import settings
 
 app = FastAPI(title="MtaaLab API", version="0.2.0")
@@ -22,6 +23,7 @@ app.include_router(missions_router)
 app.include_router(simulations_router)
 app.include_router(decisions_router)
 app.include_router(reports_router)
+app.include_router(webhooks_router)
 
 
 @app.get("/api/health", response_model=HealthResponse)

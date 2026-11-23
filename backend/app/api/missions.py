@@ -31,11 +31,10 @@ def list_missions(
     user: CurrentUser = Depends(get_current_user),  # noqa: B008
     repository: MissionRepository = Depends(get_mission_repository),  # noqa: B008
 ) -> MissionListResponse:
-    """List published missions available to authenticated MtaaLab profiles."""
-    del user  # Mission assignment is global in the current schema; learner records remain scoped.
+    """List published missions assigned to the caller's active classes."""
     items: list[MissionListItem] = []
-    for mission in repository.list_published():
-        selected = repository.get_published(mission.id)
+    for mission in repository.list_published(user.id):
+        selected = repository.get_published_for_user(mission.id, user.id)
         if selected is not None:
             items.append(_mission_item(selected[0], selected[1]))
     return MissionListResponse(missions=items)
@@ -48,8 +47,7 @@ def get_mission(
     repository: MissionRepository = Depends(get_mission_repository),  # noqa: B008
 ) -> MissionDetailResponse:
     """Return the published brief and immutable scenario metadata."""
-    del user
-    selected = repository.get_published(mission_id)
+    selected = repository.get_published_for_user(mission_id, user.id)
     if selected is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mission not found")
     mission, version = selected

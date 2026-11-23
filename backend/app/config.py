@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,9 +25,18 @@ class Settings(BaseSettings):
     at_username: str = "sandbox"
     at_api_key: str | None = None
     at_test_phone: str | None = None
+    at_ussd_service_code: str = ""
+    at_allowed_phones: str = ""
+    rate_limit_per_minute: int = Field(default=60, ge=1, le=10_000)
     app_env: str = "development"
     public_base_url: str | None = None
     allowed_origins: str = "http://localhost:5173"
+
+    @field_validator("rate_limit_per_minute", mode="before")
+    @classmethod
+    def empty_rate_limit_uses_default(cls, value: object) -> object:
+        """Allow an empty template value while retaining a safe default limit."""
+        return 60 if value == "" else value
 
     @property
     def cors_origins(self) -> list[str]:

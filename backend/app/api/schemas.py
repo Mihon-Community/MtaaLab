@@ -133,15 +133,34 @@ class ErrorResponse(APIModel):
 
 
 class USSDCallbackRequest(APIModel):
-    sessionId: str = Field(min_length=1, max_length=128)
-    serviceCode: str = Field(min_length=1, max_length=64)
-    phoneNumber: str = Field(min_length=1, max_length=32)
-    text: str = Field(max_length=500)
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    session_id: str = Field(alias="sessionId", min_length=1, max_length=128)
+    service_code: str = Field(alias="serviceCode", min_length=1, max_length=64)
+    phone_number: str = Field(alias="phoneNumber", min_length=1, max_length=32)
+    text: str = Field(default="", max_length=500)
+    network_code: str = Field(alias="networkCode", max_length=64)
 
 
 class SMSStatusCallbackRequest(APIModel):
-    id: str = Field(min_length=1, max_length=128)
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    provider_message_id: str = Field(alias="id", min_length=1, max_length=128)
     status: str = Field(min_length=1, max_length=64)
-    phoneNumber: str | None = Field(default=None, max_length=32)
-    networkCode: str | None = Field(default=None, max_length=64)
-    failureReason: str | None = Field(default=None, max_length=160)
+    phone_number: str | None = Field(default=None, alias="phoneNumber", max_length=32)
+    network_code: str | None = Field(default=None, alias="networkCode", max_length=64)
+    failure_reason: str | None = Field(default=None, alias="failureReason", max_length=160)
+
+
+class USSDMenuResponse(APIModel):
+    message: str = Field(min_length=5, max_length=160, pattern=r"^(CON|END) ")
+
+
+class SmsResult(APIModel):
+    status: Literal["sent", "failed", "not_configured"]
+    provider_message_id: str | None = Field(default=None, max_length=128)
+    error_code: str | None = Field(default=None, max_length=64)
+
+
+class WebhookAckResponse(APIModel):
+    status: Literal["accepted"] = "accepted"
