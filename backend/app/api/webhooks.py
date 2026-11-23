@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from hashlib import sha256
+from hmac import compare_digest
 from typing import TypeVar
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
@@ -76,6 +77,25 @@ def _caller_host(request: Request) -> str:
     return client.host[:128] if client and client.host else "unknown-client"
 
 
+def _require_webhook_token(request: Request) -> None:
+    """Authenticate provider callbacks with the configured shared token."""
+    expected = (settings.webhook_token or "").strip()
+    if not expected:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Webhook authentication is not configured",
+        )
+
+    supplied = request.headers.get("x-webhook-token", "")
+    if not supplied:
+        authorization = request.headers.get("authorization", "")
+        scheme, separator, credential = authorization.partition(" ")
+        if separator and scheme.lower() == "bearer":
+            supplied = credential.strip()
+    if not supplied or not compare_digest(supplied.encode("utf-8"), expected.encode("utf-8")):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+
 def _safe_status(value: str) -> str:
     status_value = value.strip().lower()
     allowed = {
@@ -139,6 +159,7 @@ async def africastalking_ussd_callback(
         f"client:{_caller_host(request)}",
         f"phone-ref:{phone_ref}",
     )
+    _require_webhook_token(request)
 
     configured_service_code = settings.at_ussd_service_code.strip()
     if configured_service_code and callback.service_code != configured_service_code:
@@ -184,6 +205,7 @@ async def africastalking_sms_status_callback(
         f"client:{_caller_host(request)}",
         f"phone-ref:{recipient_ref}",
     )
+    _require_webhook_token(request)
 
     status_value = _safe_status(callback.status)
     error_code = _safe_error_code(callback.failure_reason)

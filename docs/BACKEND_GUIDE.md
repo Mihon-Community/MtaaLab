@@ -56,7 +56,7 @@ They require a reachable `SUPABASE_DB_URL`. The current development runner canno
 - Keep names, phone numbers, school IDs, prompts, and hidden reasoning out of AI audit records. Only validated output and operational metadata are stored.
 - RLS stays enabled. Browser roles cannot write authoritative simulation data.
 - Mission discovery and session creation require an assignment to one of the learner's active classes; teachers may manage assignments only in their own school-scoped classes.
-- USSD input is parsed as a bounded cumulative path and submitted through the same deterministic simulation gateway as the PWA. The callback stores only a hashed phone reference, uses a 180-second menu expiry, and replays a stored response for a duplicate request. It never calls NVIDIA.
+- Public Africa's Talking callbacks require the root `WEBHOOK_TOKEN` through `X-Webhook-Token` or Bearer authorization; an unset token fails closed. USSD input is parsed as a bounded cumulative path and submitted through the same deterministic simulation gateway as the PWA. The callback stores only a hashed phone reference, uses a 180-second menu expiry, and replays a stored response for a duplicate request. It never calls NVIDIA.
 - Outbound sandbox SMS is lazy-initialized, limited to 160 characters, and persisted to `delivery_logs`; the test-send script is manual only and is not run by CI.
 - A qualitative assessment is only created after mission completion and is unique per session and rubric version.
 

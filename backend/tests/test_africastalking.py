@@ -26,6 +26,7 @@ from app.simulation.service import load_scenario
 
 TEST_PHONE = "+254700000111"
 SERVICE_CODE = "*384*123#"
+WEBHOOK_TEST_TOKEN = "test-webhook-token"
 
 
 class FakeStore:
@@ -178,8 +179,9 @@ def webhook_app(monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, FakeStore,
     app.include_router(router)
     app.dependency_overrides[get_webhook_store] = lambda: store
     app.dependency_overrides[get_simulation_gateway] = lambda: gateway
+    monkeypatch.setattr(settings, "webhook_token", WEBHOOK_TEST_TOKEN)
     monkeypatch.setattr("app.api.webhooks.enforce_webhook_rate_limit", lambda *args: None)
-    return TestClient(app), store, gateway
+    return TestClient(app, headers={"X-Webhook-Token": WEBHOOK_TEST_TOKEN}), store, gateway
 
 
 def ussd_body(text: str = "", **overrides: str) -> dict[str, str]:
@@ -328,6 +330,48 @@ def test_invalid_callback_and_wrong_service_code_return_contract_statuses(
     assert wrong_code.status_code == 403
     assert missing.json() == {"detail": "Invalid callback fields"}
     assert wrong_code.json() == {"detail": "Service code mismatch"}
+
+
+def test_webhooks_require_the_configured_token(
+    webhook_app: tuple[TestClient, FakeStore, FakeGateway],
+) -> None:
+    client, _, _ = webhook_app
+    body = ussd_body()
+
+    missing = client.post(
+        "/api/webhooks/africastalking/ussd",
+        data=body,
+        headers={"X-Webhook-Token": ""},
+    )
+    incorrect = client.post(
+        "/api/webhooks/africastalking/sms-status",
+        data={"id": "provider-message-1", "status": "delivered"},
+        headers={"X-Webhook-Token": "", "Authorization": "Bearer wrong-token"},
+    )
+    bearer = client.post(
+        "/api/webhooks/africastalking/sms-status",
+        data={"id": "provider-message-2", "status": "delivered"},
+        headers={"X-Webhook-Token": "", "Authorization": f"Bearer {WEBHOOK_TEST_TOKEN}"},
+    )
+
+    assert missing.status_code == incorrect.status_code == 401
+    assert bearer.status_code == 200
+
+
+def test_webhooks_fail_closed_when_token_is_not_configured(
+    webhook_app: tuple[TestClient, FakeStore, FakeGateway],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, _, _ = webhook_app
+    monkeypatch.setattr(settings, "webhook_token", "")
+
+    response = client.post(
+        "/api/webhooks/africastalking/ussd",
+        data=ussd_body(),
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Webhook authentication is not configured"}
 
 
 def test_ussd_rate_limit_receives_only_host_and_phone_digest(

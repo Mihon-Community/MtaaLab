@@ -16,8 +16,8 @@ Commands and results from `backend/`:
 
 | Command | Result |
 |---|---|
-| `.venv\\Scripts\\python.exe -m pytest -q -m "not integration and not nvidia" -p no:cacheprovider` | 73 passed, 5 deselected. |
-| `.venv\\Scripts\\python.exe -m pytest -q tests/test_africastalking.py -p no:cacheprovider` | 12 passed after the final SMS sanitization changes. |
+| `.venv\\Scripts\\python.exe -m pytest -q -m "not integration and not nvidia" -p no:cacheprovider` | 75 passed, 5 deselected. |
+| `.venv\\Scripts\\python.exe -m pytest -q tests/test_africastalking.py -p no:cacheprovider` | 14 passed after the webhook token check was added. |
 | `.venv\\Scripts\\ruff.exe check .` | Passed. |
 | `.venv\\Scripts\\ruff.exe format --check .` | Passed; all 69 Python files formatted. |
 | SQLAlchemy connection check using `SUPABASE_DB_URL` | Failed with `OperationalError`; direct PostgreSQL integration tests were not run. No connection details or credentials were printed. |
@@ -66,7 +66,7 @@ The synthetic seed is applied: one demo school, two profiles, one class membersh
 - Mission discovery and session creation are assignment-scoped; teachers manage assignments for their own same-school classes, and active students whose profile school matches the class school can read their assignments.
 - Session creation idempotency is per student and immutable mission version. Decision idempotency is per session; replay idempotency is per parent session. AI prompts scrub self-identification and school phrases, and output validation rejects numeric claims expressed as words as well as digits.
 - MVP turn advancement is combined with a decision; `/advance` returns `409`. Reasoning assessments are accepted only after mission completion and persist once per rubric version.
-- Africa's Talking callbacks use the deterministic gateway and do not call NVIDIA; frontend offline behavior is not implemented in this backend work.
+- Africa's Talking callbacks require `WEBHOOK_TOKEN` through `X-Webhook-Token` or Bearer authorization, use the deterministic gateway, and do not call NVIDIA; frontend offline behavior is not implemented in this backend work.
 - The project's Auth JWKS reports ES256 and is used for JWT validation. Supabase security advisor reports leaked-password protection disabled.
 - The SQL MCP tool rejected database-role password changes; no password rotation was performed. Rotate the database password in the Supabase Dashboard and update the root `.env`.
 
