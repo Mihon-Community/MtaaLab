@@ -109,8 +109,10 @@ alter table public.delivery_logs enable row level security;
 
 -- SECURITY DEFINER avoids recursive RLS evaluation when class policies check membership.
 create or replace function public.is_mtaalab_class_member(target_class uuid)
-returns boolean language sql stable security definer set search_path = public
+returns boolean language sql stable security definer set search_path = ''
 as $$ select exists (select 1 from public.class_memberships cm where cm.class_id=target_class and cm.student_id=auth.uid()) $$;
+revoke all on function public.is_mtaalab_class_member(uuid) from public, anon;
+grant execute on function public.is_mtaalab_class_member(uuid) to authenticated;
 
 -- Explicit operation policies: clients can read only their scoped records; writes are backend-only.
 create policy profiles_select_own on public.profiles for select to authenticated using (id = auth.uid());
