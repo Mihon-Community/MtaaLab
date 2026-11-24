@@ -51,12 +51,12 @@ by convention:
 
 Branch model (see `CONTRIBUTING.md`):
 
-| Branch | Purpose |
-|---|---|
-| `main` | Stable, demo-ready. Changes only through PRs from `develop`. |
-| `develop` | Integration branch. Feature branches merge here. |
-| `feature/steve` | Developer 1: frontend and simulation experience. |
-| `feature/lennox` (brief also spells `feature/lennx`) | Developer 2: backend/AI/integrations. |
+| Branch                                               | Purpose                                                      |
+| ---------------------------------------------------- | ------------------------------------------------------------ |
+| `main`                                               | Stable, demo-ready. Changes only through PRs from `develop`. |
+| `develop`                                            | Integration branch. Feature branches merge here.             |
+| `feature/steve`                                      | Developer 1: frontend and simulation experience.             |
+| `feature/lennox` (brief also spells `feature/lennx`) | Developer 2: backend/AI/integrations.                        |
 
 Workflow:
 
@@ -112,11 +112,11 @@ instead of crashing.
 
 Only these three variables are read by the browser bundle:
 
-| Variable | Meaning | Example |
-|---|---|---|
-| `VITE_SUPABASE_URL` | Supabase project URL | `https://<project>.supabase.co` |
-| `VITE_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable/anon key | `replace_me` |
-| `VITE_API_BASE_URL` | FastAPI base URL; empty string means same origin | `http://localhost:8000` |
+| Variable                        | Meaning                                          | Example                         |
+| ------------------------------- | ------------------------------------------------ | ------------------------------- |
+| `VITE_SUPABASE_URL`             | Supabase project URL                             | `https://<project>.supabase.co` |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable/anon key                    | `replace_me`                    |
+| `VITE_API_BASE_URL`             | FastAPI base URL; empty string means same origin | `http://localhost:8000`         |
 
 When `VITE_API_BASE_URL` is empty, requests are sent to the same origin as the
 page. That works in the Docker/Nginx build, where Nginx proxies `/api/` to
@@ -153,26 +153,23 @@ from it.
 
 ## 4. Technology stack and configuration
 
-| Concern | Choice | Notes |
-|---|---|---|
-| UI | React 19.1 | Function components and hooks only. |
-| Routing | react-router-dom 7.18 | `BrowserRouter` in `main.tsx`; routes declared in one table. |
-| Build/dev | Vite 6.4 | `@vitejs/plugin-react`; `envDir: ".."`. |
-| Language | TypeScript 5.8, `strict` | `noUnusedLocals`, `noUnusedParameters`, `noEmit`. |
-| Styling | Tailwind 3.4 plus hand-written CSS | `src/styles/index.css` holds the design tokens and most component classes; Tailwind scans `index.html` and `src/**/*.{ts,tsx}`. |
-| Auth/data | `@supabase/supabase-js` 2.50 | Lazy client in `src/services/supabase.ts`. |
-| Tests | Vitest 5.1 + Testing Library + jsdom | `vitest run`; setup file `src/test/setup.ts`. |
-| Formatting | Prettier 3.5 | `format:check`; ignores `dist/`, `node_modules/`, `package-lock.json`. |
-| Lint | ESLint 9 + typescript-eslint + react-hooks/react-refresh | `eslint .`; ignores `dist/`. |
-| PWA | Hand-written `public/sw.js` + `manifest.webmanifest` | Registered only in production (`import.meta.env.PROD`). |
-| World renderer | **None installed** | `WorldScene.ts` is an empty stub. See section 12. |
+| Concern        | Choice                                                   | Notes                                                                                                                           |
+| -------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| UI             | React 19.1                                               | Function components and hooks only.                                                                                             |
+| Routing        | react-router-dom 7.18                                    | `BrowserRouter` in `main.tsx`; routes declared in one table.                                                                    |
+| Build/dev      | Vite 6.4                                                 | `@vitejs/plugin-react`; `envDir: ".."`.                                                                                         |
+| Language       | TypeScript 5.8, `strict`                                 | `noUnusedLocals`, `noUnusedParameters`, `noEmit`.                                                                               |
+| Styling        | Tailwind 3.4 plus hand-written CSS                       | `src/styles/index.css` holds the design tokens and most component classes; Tailwind scans `index.html` and `src/**/*.{ts,tsx}`. |
+| Auth/data      | `@supabase/supabase-js` 2.50                             | Lazy client in `src/services/supabase.ts`.                                                                                      |
+| Tests          | Vitest 5.1 + Testing Library + jsdom                     | `vitest run`; setup file `src/test/setup.ts`.                                                                                   |
+| Formatting     | Prettier 3.5                                             | `format:check`; ignores `dist/`, `node_modules/`, `package-lock.json`.                                                          |
+| Lint           | ESLint 9 + typescript-eslint + react-hooks/react-refresh | `eslint .`; ignores `dist/`.                                                                                                    |
+| PWA            | Hand-written `public/sw.js` + `manifest.webmanifest`     | Registered only in production (`import.meta.env.PROD`).                                                                         |
+| World renderer | Phaser 3.88                                              | `WorldCanvas` lazy-loads the Phaser scene; keyboard-accessible React controls provide equivalent location selection.            |
 
-Reality check on the world renderer: the specification lists
-`React + TypeScript + Vite + Phaser 3`, but `frontend/package.json` has no
-Phaser dependency and `src/features/simulation/WorldScene.ts` contains only an
-empty class. Do not assume Phaser exists. Either add `phaser` deliberately (and
-update this guide and the lockfile) or build the world with DOM/SVG/Canvas. The
-rest of this guide describes the contract the renderer must satisfy either way.
+The Phaser scene renders only the map and location intent. React owns decisions,
+accessibility, API requests, and confirmed state. The separate
+`PortfolioRunPage` remains available for the portfolio-game flow.
 
 Configuration files you will touch:
 
@@ -226,30 +223,34 @@ frontend/
       routes/pages.tsx           Single source of truth for paths and page components
       auth/README.md             Placeholder note for future dedicated auth screens
     features/
-      mission-lobby/LobbyPage.tsx        Working: Supabase sign-in, mission list, start/continue/replay
-      briefing/BriefingPage.tsx          Placeholder
+      mission-lobby/LobbyPage.tsx        Supabase sign-in, assigned missions, saved-run links
+      briefing/BriefingPage.tsx          Mission briefing and idempotent session start
       simulation/
-        SimulationPage.tsx               Route switch: saved run vs Mtoni placeholder layout
-        PortfolioRunPage.tsx             Working: full confirmed-state play loop for all four games
+        SimulationPage.tsx               Route switch: portfolio run vs API-backed Mtoni simulation
+        PortfolioRunPage.tsx             Confirmed-state play loop for portfolio games
         PortfolioWorldCanvas.tsx         Working: fictional metric cards per scenario
-        WorldCanvas.tsx                  Placeholder (Mtoni map mount)
-        WorldScene.ts                    Empty stub (would-be Phaser scene)
-        DecisionPanel.tsx                Placeholder (Mtoni decision centre)
-        InspectionPanel.tsx              Placeholder (location facts)
-        ResourceHUD.tsx                  Placeholder (resources)
-        EventPanel.tsx                   Placeholder (stakeholder/events)
-        TurnTimeline.tsx                 Placeholder (timeline)
-      replay/ReplayPage.tsx              Placeholder
-      learning-report/ReportPage.tsx     Placeholder
-      teacher-view/TeacherPage.tsx       Working: roster + one-time code issuance
+        WorldCanvas.tsx                  Lazy Phaser mount and accessible location controls
+        WorldScene.ts                    Phaser map scene
+        DecisionPanel.tsx                Mission-configured actions and confirmed submit
+        InspectionPanel.tsx              Selected-location facts
+        ResourceHUD.tsx                  Confirmed resources
+        EventPanel.tsx                   Events and reflection/debrief
+        TurnTimeline.tsx                 API-backed saved history
+      replay/ReplayPage.tsx              Replay creation and confirmed-value comparison
+      learning-report/ReportPage.tsx     Persisted outcomes and debrief
+      teacher-view/TeacherPage.tsx       Mission reports and feature-phone codes
     components/
-      AccessibleButton.tsx       Thin pass-through button (extend for variants)
-      AudioControls.tsx          Placeholder
-      ContrastToggle.tsx         Placeholder
-      LoadingState.tsx           Placeholder
+      AudioControls.tsx           Optional narration
+      ContrastToggle.tsx          Contrast and text-size controls
+      DemoModeBanner.tsx          Explicit local-demo disclosure
+    lib/
+      theme.tsx                   Display preferences
+      utils.ts                    Class-name helper
     services/
       api.ts                     Typed fetch wrapper (Bearer + Idempotency-Key)
       supabase.ts                Lazy Supabase client with placeholder detection
+      demo/                      Explicit local demo transport and scenario engine
+      sessionCache.ts            Last confirmed simulation state for display
     types/api.ts                 Mirrors backend schemas; keep in sync
     styles/index.css             Design tokens, layout, focus, reduced-motion rules
     test/setup.ts                jest-dom matchers
@@ -258,10 +259,11 @@ frontend/
     icon.svg, manifest.webmanifest, sw.js
 ```
 
-Status summary: auth, mission lobby, portfolio play loop, portfolio metric
-canvas, and teacher code issuance work. Briefing, replay, learning report,
-dedicated Mtoni panels, the map, and the accessibility/audio components are
-placeholders. Section 18 lists every TODO.
+Status summary: the learner mission journey, portfolio play loop, replay,
+learning report, teacher report inspection, mobile-code issuance, demo
+transport, and accessibility controls have initial implementations. The API
+does not provide teacher assignment editing. Continue to treat all simulation
+outcomes as server-authoritative.
 
 ---
 
@@ -271,22 +273,22 @@ All routes live in `frontend/src/app/routes/pages.tsx` (`routePages`). `App.tsx`
 maps that array into `<Link>` entries in the header and `<Route>` elements. A
 catch-all renders the lobby.
 
-| Path | Component | Purpose | Parameters |
-|---|---|---|---|
-| `/` | `LobbyPage` | Sign in, list assigned games, start/continue/replay | none |
-| `/briefing` | `BriefingPage` | Mission brief (placeholder) | none yet |
-| `/simulation` | `SimulationPage` | Saved-run player, or Mtoni placeholder layout | `sessionId`, `missionId` |
-| `/replay` | `ReplayPage` | Replay comparison (placeholder) | none yet |
-| `/report` | `ReportPage` | Learning report (placeholder) | none yet |
-| `/teacher` | `TeacherPage` | Teacher roster and one-time codes | none |
+| Path          | Component        | Purpose                                                                | Parameters                                                     |
+| ------------- | ---------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `/`           | `LobbyPage`      | Sign in, list assigned missions, open briefing or continue a saved run | none                                                           |
+| `/briefing`   | `BriefingPage`   | Mission brief and idempotent session start                             | `mission_id`                                                   |
+| `/simulation` | `SimulationPage` | API-backed Mtoni simulation or portfolio-game run                      | `session_id`, `mission_id`, or legacy `sessionId`, `missionId` |
+| `/replay`     | `ReplayPage`     | Create and compare an independent replay                               | `source_session_id`, optional `replay_session_id`              |
+| `/report`     | `ReportPage`     | Persisted learning report and debrief                                  | `session_id`                                                   |
+| `/teacher`    | `TeacherPage`    | Assigned missions, authorized report review, mobile join codes         | none                                                           |
 
 `/simulation` behaviour (`SimulationPage.tsx`):
 
 - If the query string contains `sessionId` or `missionId`, it lazily loads
   `PortfolioRunPage` inside a `<Suspense>` with a `role="status"` fallback.
-- Otherwise it renders the legacy Mtoni placeholder composition
-  (`ResourceHUD`, `WorldCanvas`, `InspectionPanel`, `DecisionPanel`,
-  `EventPanel`, `TurnTimeline`).
+- Otherwise it renders the API-backed Mtoni composition (`ResourceHUD`,
+  `WorldCanvas`, `InspectionPanel`, `DecisionPanel`, `EventPanel`,
+  `TurnTimeline`).
 
 `PortfolioRunPage` reads `sessionId` and `missionId` from the query string. Both
 are required; if either is missing it shows "Choose a game first" with a link to
@@ -377,9 +379,9 @@ the frontend must know, including failure modes that matter to the UI.
 
 ### Missions
 
-| Endpoint | Auth | Response |
-|---|---|---|
-| `GET /api/missions` | Bearer | `{ missions: MissionListItem[] }` — published missions assigned to the caller's active class. Includes latest run id/status and current turn. No grade filter. |
+| Endpoint                         | Auth   | Response                                                                                                                                                                          |
+| -------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/missions`              | Bearer | `{ missions: MissionListItem[] }` — published missions assigned to the caller's active class. Includes latest run id/status and current turn. No grade filter.                    |
 | `GET /api/missions/{mission_id}` | Bearer | `MissionDetail` — brief, objectives, action catalogue, allocation policies, plans, units, reflection choices, hint ladder, immutable `rules_version`. Unassigned mission → `404`. |
 
 `MissionListItem` fields: `id`, `title`, `description`, `subject`,
@@ -397,21 +399,21 @@ delay_turns, one_time, parameters, choices). `plans` maps plan id to
 
 ### Sessions, state, history
 
-| Endpoint | Notes |
-|---|---|
-| `POST /api/simulations` | Body `{ "mission_id": "uuid" }`. Optional `Idempotency-Key` (1–128 chars). `201` with `SessionCreated`. Same key + same student + same mission version returns the existing session. |
-| `GET /api/simulations/{id}/state` | `{ session_id, turn, status, scenario_id, state }`. Owner-scoped. |
-| `GET /api/simulations/{id}/history` | Query `limit` (default 50, max 100), `offset` (>= 0). Returns `{ session_id, entries, limit, offset, total }`. Each entry: `{ turn, action, events, state, state_hash, ai_feedback_status }`. |
-| `POST /api/simulations/{id}/replay` | Optional body `{ "label": "…" }`, optional `Idempotency-Key`. Returns `ReplayResponse` (`SessionCreated` plus `parent_session_id`). The source run is unchanged. |
-| `POST /api/simulations/{id}/advance` | Always `409` after authorization. There is no separate advance: a decision advances the simulation. |
+| Endpoint                             | Notes                                                                                                                                                                                         |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/simulations`              | Body `{ "mission_id": "uuid" }`. Optional `Idempotency-Key` (1–128 chars). `201` with `SessionCreated`. Same key + same student + same mission version returns the existing session.          |
+| `GET /api/simulations/{id}/state`    | `{ session_id, turn, status, scenario_id, state }`. Owner-scoped.                                                                                                                             |
+| `GET /api/simulations/{id}/history`  | Query `limit` (default 50, max 100), `offset` (>= 0). Returns `{ session_id, entries, limit, offset, total }`. Each entry: `{ turn, action, events, state, state_hash, ai_feedback_status }`. |
+| `POST /api/simulations/{id}/replay`  | Optional body `{ "label": "…" }`, optional `Idempotency-Key`. Returns `ReplayResponse` (`SessionCreated` plus `parent_session_id`). The source run is unchanged.                              |
+| `POST /api/simulations/{id}/advance` | Always `409` after authorization. There is no separate advance: a decision advances the simulation.                                                                                           |
 
 The frontend currently requests `history?limit=100`. Use `limit=100` when you
 need the whole run; use pagination only if history grows.
 
 ### Decisions
 
-| Endpoint | Notes |
-|---|---|
+| Endpoint                               | Notes                                                                                                                                                                      |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST /api/simulations/{id}/decisions` | Body `{ action_type, parameters, expected_turn }`. **Mandatory** `Idempotency-Key` (1–200 chars). `200` with `DecisionResponse`. Student role only; other roles get `404`. |
 
 `DecisionResponse`: `{ session_id, turn, accepted: true, state, events[],
@@ -421,29 +423,29 @@ water_accounting | null, ai_feedback_status }`.
 
 `ai_feedback_status` values:
 
-| Value | Meaning | UI treatment |
-|---|---|---|
-| `pending` | Mtoni turn committed; stakeholder feedback task queued | Show "feedback is being prepared"; poll or wait for a low-volume update. |
-| `available` | Feedback stored | Render the feedback. |
-| `ai_unavailable` | Model/validation failed | Show the safe fallback copy. Never imply success. |
-| `not_requested` | Non-Mtoni scenarios, or replay of a stored decision | Nothing to show for feedback; the event log carries the turn. |
+| Value            | Meaning                                                | UI treatment                                                             |
+| ---------------- | ------------------------------------------------------ | ------------------------------------------------------------------------ |
+| `pending`        | Mtoni turn committed; stakeholder feedback task queued | Show "feedback is being prepared"; poll or wait for a low-volume update. |
+| `available`      | Feedback stored                                        | Render the feedback.                                                     |
+| `ai_unavailable` | Model/validation failed                                | Show the safe fallback copy. Never imply success.                        |
+| `not_requested`  | Non-Mtoni scenarios, or replay of a stored decision    | Nothing to show for feedback; the event log carries the turn.            |
 
 Failure modes for decisions:
 
-| Status | Cause | UI action |
-|---|---|---|
-| `400` | Invalid action or parameters | Show "that choice is not available"; refresh the catalogue from the mission detail. |
-| `401` | Missing/invalid bearer token | Return to sign-in. |
-| `404` | Session not owned/visible, or caller is not a student | Show the saved-game error and offer "Back to games". |
-| `409` | `expected_turn` is stale, session not active, or concurrent write lost | Discard local assumption, `GET state`, re-render from confirmed state, let the user choose again. |
-| `500` | Persistence invariant | Show a generic error and retry after refreshing state. |
+| Status | Cause                                                                  | UI action                                                                                         |
+| ------ | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `400`  | Invalid action or parameters                                           | Show "that choice is not available"; refresh the catalogue from the mission detail.               |
+| `401`  | Missing/invalid bearer token                                           | Return to sign-in.                                                                                |
+| `404`  | Session not owned/visible, or caller is not a student                  | Show the saved-game error and offer "Back to games".                                              |
+| `409`  | `expected_turn` is stale, session not active, or concurrent write lost | Discard local assumption, `GET state`, re-render from confirmed state, let the user choose again. |
+| `500`  | Persistence invariant                                                  | Show a generic error and retry after refreshing state.                                            |
 
 ### Reflections
 
-| Endpoint | Notes |
-|---|---|
-| `POST /api/simulations/{id}/reflections` | Body `{ turn_number, answer_code }` where `answer_code` is `"1"`, `"2"`, or `"3"`. Returns `ReflectionResponse`. |
-| `GET /api/simulations/{id}/reflections/{turn_number}` | `{ "reflection": ReflectionResponse \| null }`. |
+| Endpoint                                              | Notes                                                                                                            |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `POST /api/simulations/{id}/reflections`              | Body `{ turn_number, answer_code }` where `answer_code` is `"1"`, `"2"`, or `"3"`. Returns `ReflectionResponse`. |
+| `GET /api/simulations/{id}/reflections/{turn_number}` | `{ "reflection": ReflectionResponse \| null }`.                                                                  |
 
 `ReflectionResponse`: `{ session_id, turn_number, answer_code, misconception_tag,
 accepted, idempotent_replay }`.
@@ -464,10 +466,10 @@ Rules the UI depends on:
 
 ### Reports and debrief
 
-| Endpoint | Notes |
-|---|---|
-| `GET /api/simulations/{id}/report` | `{ session_id, mission_id, status, current_turn, outcomes, decisions[], events[], assessment }`. Built only from confirmed state and persisted history. |
-| `POST /api/simulations/{id}/debrief` | Optional `{ student_explanation }` (max 2,000 chars). Returns `{ session_id, debrief, source, ai_feedback_status }`. |
+| Endpoint                             | Notes                                                                                                                                                   |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/simulations/{id}/report`   | `{ session_id, mission_id, status, current_turn, outcomes, decisions[], events[], assessment }`. Built only from confirmed state and persisted history. |
+| `POST /api/simulations/{id}/debrief` | Optional `{ student_explanation }` (max 2,000 chars). Returns `{ session_id, debrief, source, ai_feedback_status }`.                                    |
 
 Debrief rules:
 
@@ -480,9 +482,9 @@ Debrief rules:
 
 ### Mobile / teacher
 
-| Endpoint | Auth | Notes |
-|---|---|---|
-| `GET /api/mobile/classes` | teacher/admin | `{ classes: [{ class_id, name, learners: [{ student_id, display_name }] }] }`. Teachers see their own classes; admins see their school. Students get `403`. |
+| Endpoint                      | Auth          | Notes                                                                                                                                                                                                                                                 |
+| ----------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/mobile/classes`     | teacher/admin | `{ classes: [{ class_id, name, learners: [{ student_id, display_name }] }] }`. Teachers see their own classes; admins see their school. Students get `403`.                                                                                           |
 | `POST /api/mobile/join-codes` | teacher/admin | Body `{ class_id, student_id }`. `201` with `{ join_code, expires_at, message }`. Code is 10 characters, single-use, expires in 7 days, shown once. Returns `404` for a class/learner outside scope, `503` if the join-code pepper is not configured. |
 
 ### Health
@@ -497,6 +499,7 @@ banner. Do not use it as a substitute for authorized session state.
 This is the sequence the player-facing screens must implement. Follow it exactly.
 
 1. **Create or resume a session.**
+
    - New run: `POST /api/simulations` with `{ mission_id }` and a fresh
      `Idempotency-Key` (1–128 chars). A repeat with the same key returns the same
      session.
@@ -517,6 +520,7 @@ This is the sequence the player-facing screens must implement. Follow it exactly
    detail and the state payload. Label fictional units. Do not compute deltas.
 
 4. **Choose an action.**
+
    - Read `action_catalogue` from the mission detail and render one control per
      action. For `change_allocation`, render one control per `policy_id` from
      `allocation_policies`. For the market game, render the plan choices from
@@ -525,6 +529,7 @@ This is the sequence the player-facing screens must implement. Follow it exactly
      is completed, and when the reflection gate applies (below).
 
 5. **Submit the decision.**
+
    - Generate a **fresh unique** `Idempotency-Key` for each submission attempt
      (for example `crypto.randomUUID()`, with a timestamp fallback). Keep the
      key for the lifetime of that attempt so a retry after a network error
@@ -550,6 +555,7 @@ This is the sequence the player-facing screens must implement. Follow it exactly
      rejects out-of-range values.
 
 6. **Handle the response.**
+
    - On `200`: store the returned `turn`, `state`, `events`, and
      `ai_feedback_status` as the new confirmed truth. Render the events. Then
      render the reflection prompt for that turn (portfolio games) unless the
@@ -587,24 +593,24 @@ All numbers are fictional game units. The scenario id comes from
 
 ### Scenario catalogue
 
-| `scenario_id` | Title | Turns | Units | Action catalogue |
-|---|---|---|---|---|
-| `mtoni` | Mtoni water resilience | 6 | fictional water units, fictional budget credits | `repair_main_pipe` (cost 25, one-time), `conservation_campaign` (cost 15, delay 1), `change_allocation` (cost 0, policy parameter), `install_storage` (cost 30, one-time, capacity 10–30), `efficient_irrigation` (cost 20, delay 1, ratio 0.05–0.25) |
-| `soko_market` | Mama Mboga Market | 6 | fictional credits, fictional units | `market_plan` with choices `value`, `steady`, `premium` (also exposed as `plans`) |
-| `mtoni_fever` | Mtoni Fever Response | 6 | fictional tokens, fictional points | `install_water_point` (cost 20, delay 1), `add_handwashing` (cost 15, delay 1), `improve_clinic_readiness` (cost 10, delay 0) |
-| `chama_circle` | Chama Trust Circle | 6 | fictional tokens | `save_tokens`, `approve_request_a`, `approve_request_b` (no cost field) |
+| `scenario_id`  | Title                  | Turns | Units                                           | Action catalogue                                                                                                                                                                                                                                      |
+| -------------- | ---------------------- | ----- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mtoni`        | Mtoni water resilience | 6     | fictional water units, fictional budget credits | `repair_main_pipe` (cost 25, one-time), `conservation_campaign` (cost 15, delay 1), `change_allocation` (cost 0, policy parameter), `install_storage` (cost 30, one-time, capacity 10–30), `efficient_irrigation` (cost 20, delay 1, ratio 0.05–0.25) |
+| `soko_market`  | Mama Mboga Market      | 6     | fictional credits, fictional units              | `market_plan` with choices `value`, `steady`, `premium` (also exposed as `plans`)                                                                                                                                                                     |
+| `mtoni_fever`  | Mtoni Fever Response   | 6     | fictional tokens, fictional points              | `install_water_point` (cost 20, delay 1), `add_handwashing` (cost 15, delay 1), `improve_clinic_readiness` (cost 10, delay 0)                                                                                                                         |
+| `chama_circle` | Chama Trust Circle     | 6     | fictional tokens                                | `save_tokens`, `approve_request_a`, `approve_request_b` (no cost field)                                                                                                                                                                               |
 
 Cost and delay fields are optional in the catalogue. Render a cost only when
 the field exists, and keep the fictional-token disclaimer visible.
 
 ### State fields the UI may display
 
-| Scenario | Fields |
-|---|---|
-| `mtoni` | `current_turn`, `reservoir_level`, `reservoir_capacity`, `demand_by_sector`, `leakage`, `budget_remaining`, `service_levels`, `unmet_demand_by_sector`, `crop_health`, `wellbeing`, `allocation_policy`, `used_actions`, `pending_effects` |
-| `soko_market` | `current_turn`, `cash_credits`, `stock_units`, `selling_price`, `total_sold`, `total_spoiled`, `completed_actions` |
-| `mtoni_fever` | `current_turn`, `budget_tokens`, `safe_water_points`, `handwashing_points`, `clinic_readiness`, `pending_effects`, `completed_actions` |
-| `chama_circle` | `current_turn`, `pool_tokens`, `reserve_tokens`, `outstanding_tokens`, `repayments_received`, `delayed_tokens`, `scheduled_repayments`, `completed_actions` |
+| Scenario       | Fields                                                                                                                                                                                                                                     |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `mtoni`        | `current_turn`, `reservoir_level`, `reservoir_capacity`, `demand_by_sector`, `leakage`, `budget_remaining`, `service_levels`, `unmet_demand_by_sector`, `crop_health`, `wellbeing`, `allocation_policy`, `used_actions`, `pending_effects` |
+| `soko_market`  | `current_turn`, `cash_credits`, `stock_units`, `selling_price`, `total_sold`, `total_spoiled`, `completed_actions`                                                                                                                         |
+| `mtoni_fever`  | `current_turn`, `budget_tokens`, `safe_water_points`, `handwashing_points`, `clinic_readiness`, `pending_effects`, `completed_actions`                                                                                                     |
+| `chama_circle` | `current_turn`, `pool_tokens`, `reserve_tokens`, `outstanding_tokens`, `repayments_received`, `delayed_tokens`, `scheduled_repayments`, `completed_actions`                                                                                |
 
 `PortfolioWorldCanvas` maps these to three labelled metric cards per scenario
 and adds a scenario-specific disclaimer. Keep the mapping declarative so adding a
@@ -621,12 +627,12 @@ scenario is a data change, not a layout change.
 
 ### Reflection tags and hints
 
-| Scenario | `reflection_choices` tags | Hint ladder |
-|---|---|---|
-| `mtoni` | `finite-resource-tradeoff`, `service-priority`, `hint-requested` | 3 English + 3 Kiswahili strings |
-| `soko_market` | `over-order`, `price-demand`, `hint-requested` | 3 English + 3 Kiswahili |
-| `mtoni_fever` | `delayed-effect`, `instant-effect-misconception`, `hint-requested` | 3 English + 3 Kiswahili |
-| `chama_circle` | `reserve-buffer`, `reserve-opportunity-cost`, `hint-requested` | 3 English + 3 Kiswahili |
+| Scenario       | `reflection_choices` tags                                          | Hint ladder                     |
+| -------------- | ------------------------------------------------------------------ | ------------------------------- |
+| `mtoni`        | `finite-resource-tradeoff`, `service-priority`, `hint-requested`   | 3 English + 3 Kiswahili strings |
+| `soko_market`  | `over-order`, `price-demand`, `hint-requested`                     | 3 English + 3 Kiswahili         |
+| `mtoni_fever`  | `delayed-effect`, `instant-effect-misconception`, `hint-requested` | 3 English + 3 Kiswahili         |
+| `chama_circle` | `reserve-buffer`, `reserve-opportunity-cost`, `hint-requested`     | 3 English + 3 Kiswahili         |
 
 Never invent tags. Display the chosen tag as plain text (hyphens replaced by
 spaces is acceptable) and never as a diagnosis or grade.
@@ -636,8 +642,8 @@ spaces is acceptable) and never as a diagnosis or grade.
 ## 12. Screen specifications
 
 Mapping to the specification's required areas (§8). "Working" means the current
-code already implements the flow; "TODO" means the file exists but renders a
-placeholder.
+code implements the described flow; remaining API limitations are called out
+explicitly.
 
 ### Mission lobby — `/` — `LobbyPage` (working)
 
@@ -646,13 +652,13 @@ Data: `GET /api/missions`.
 - Signed out: email/password form.
 - No Supabase config: connect message.
 - Signed in: grid of mission cards with title, description, subject, suggested
-  badge, saved progress, and a primary action: Start game / Continue / Replay.
-- While starting, disable all card buttons and show "Opening…" on the active
-  card.
+  badge, and saved progress.
+- New missions open the briefing; active runs can be continued, and completed
+  runs link to their report.
 - Errors: inline `role="alert"` plus a retry affordance.
-- Empty state: "No published games are assigned to this class yet."
+- Empty state explains that no missions are assigned.
 
-### Mission briefing — `/briefing` — `BriefingPage` (TODO)
+### Mission briefing — `/briefing` — `BriefingPage` (working)
 
 Must explain: the problem, initial conditions, rules, controls, and
 accessibility options. Source the content from `GET /api/missions/{id}`:
@@ -666,7 +672,7 @@ Two renderers:
 
 - `PortfolioRunPage` (all four games, working): metric canvas + confirmed state
   grid + turn events + reflection + hint ladder + decision controls.
-- Mtoni composition (placeholders): `WorldCanvas` (map), `InspectionPanel`
+- Mtoni composition (working): `WorldCanvas` (map), `InspectionPanel`
   (selected-location facts), `ResourceHUD` (reservoir/budget/leakage),
   `DecisionPanel`, `EventPanel`, `TurnTimeline`.
 
@@ -687,21 +693,20 @@ cost where present, the confirmation requirement, and disabled-while-busy
 behaviour described in section 10. Confirm before submitting for costly or
 one-time actions; never confirm after the fact.
 
-### Stakeholder panel — `EventPanel` (TODO)
+### Stakeholder panel — `EventPanel` (working)
 
-Show bounded, de-identified Mtoni dialogue generated from the confirmed state,
-plus the turn's scripted events. Requirements: clearly label characters as
-fictional; show the AI status; provide the fallback message when status is
-`ai_unavailable`; never let the panel imply a numeric result the engine did not
-produce. 1–2 AI interactions per run are the prototype target.
+Show scripted events and the API's feedback/debrief status. The current
+stakeholder feedback route does not return dialogue text, so do not invent
+character dialogue. Clearly identify fictional content, expose AI status, and
+never imply a numeric result the engine did not produce.
 
-### Turn timeline — `TurnTimeline` (TODO)
+### Turn timeline — `TurnTimeline` (working)
 
 Source: `GET /history`. Show confirmed turns in order with the action taken, the
 resulting state snapshot (or a digest of key fields), and events. Do not
 recompute changes client-side.
 
-### Replay comparison — `/replay` — `ReplayPage` (TODO)
+### Replay comparison — `/replay` — `ReplayPage` (working)
 
 Source: `POST /replay` for the new child run and `GET /report` or
 `GET /history` for both runs. Compare original and alternative runs side by
@@ -709,7 +714,7 @@ side: turns, actions, final state, key events. If time does not allow a full
 tool, the specification permits showing recorded replay data and a comparison
 summary. Never mutate the source run.
 
-### Learning report — `/report` — `ReportPage` (TODO)
+### Learning report — `/report` — `ReportPage` (working)
 
 Source: `GET /report` and optionally `POST /debrief`. Show objective, outcomes,
 decisions, events, reasoning evidence, and the next-step recommendation.
@@ -725,7 +730,8 @@ Data: `GET /api/mobile/classes`, `POST /api/mobile/join-codes`.
 - Issue a one-time code, display it once in a large monospace value, with expiry
   and single-use warnings.
 - Privacy note about linking versus reminder opt-in.
-- Basic view only; it is not an LMS and does not need grade passback.
+- Assignment editing is not supported by the current API. The mobile roster
+  and one-time join-code endpoints are available to authorized teachers.
 
 ---
 
@@ -736,6 +742,9 @@ Data: `GET /api/mobile/classes`, `POST /api/mobile/join-codes`.
   authoritative for actions.
 - Queue user input locally only if the backend can revalidate it later. Never
   label a queued decision as accepted.
+- Local demo transport is opt-in with `VITE_USE_MOCKS=true` and displays an
+  explicit demo banner. It stores demo runs locally; do not treat them as
+  server-backed data or enable it in a production build.
 - `public/sw.js` is registered in production only. It caches the shell
   (`/`, `manifest.webmanifest`, `icon.svg`), caches same-origin GET responses,
   **skips `/api/` entirely**, and falls back to the cached shell for
@@ -755,13 +764,13 @@ Data: `GET /api/mobile/classes`, `POST /api/mobile/join-codes`.
 
 Every route that talks to the API needs, at minimum:
 
-| State | Implementation |
-|---|---|
-| Loading | `role="status"` text or a skeleton; never a blank screen. |
-| Saving | Disable the submit control, show "Saving… the display will update after confirmation." |
-| Confirmed | Replace the snapshot only after the response resolves. |
-| Error | `role="alert"`, plain-language cause, and a Retry control. |
-| Empty | Explain why the list is empty (for example no assigned games). |
+| State              | Implementation                                                                                           |
+| ------------------ | -------------------------------------------------------------------------------------------------------- |
+| Loading            | `role="status"` text or a skeleton; never a blank screen.                                                |
+| Saving             | Disable the submit control, show "Saving… the display will update after confirmation."                   |
+| Confirmed          | Replace the snapshot only after the response resolves.                                                   |
+| Error              | `role="alert"`, plain-language cause, and a Retry control.                                               |
+| Empty              | Explain why the list is empty (for example no assigned games).                                           |
 | Offline/disconnect | Keep the last confirmed state visible, show a reconnect/retry action, and never claim a write succeeded. |
 
 Live-region etiquette already used in `PortfolioRunPage`:
@@ -850,7 +859,7 @@ Mocking approach that keeps tests honest:
   `../../services/supabase`; inject resolved promises, not real network calls.
 - Use deterministic fixtures copied from `docs/API_CONTRACT.md`, clearly
   fictional values.
-- Mock only transport. Assertions about outcomes must be about *displaying* the
+- Mock only transport. Assertions about outcomes must be about _displaying_ the
   mock's values, never about values the test computed itself.
 - Run the dev server against the real backend during manual verification; tests
   must not depend on it.
@@ -859,36 +868,24 @@ Mocking approach that keeps tests honest:
 
 ## 18. Known TODO inventory
 
-Build order suggestion is roughly the order below.
+The main learner journey and teacher views are implemented. Remaining work
+should follow the live API contract rather than inventing unsupported
+capabilities:
 
-| File | What to do |
-|---|---|
-| `features/briefing/BriefingPage.tsx` | Real brief from mission detail; start action. |
-| `features/simulation/WorldScene.ts` | Either remove or implement the renderer; there is no Phaser dependency today. |
-| `features/simulation/WorldCanvas.tsx` | Mount the renderer, keyboard/touch equivalents, text alternative. |
-| `features/simulation/InspectionPanel.tsx` | Selected-location facts from confirmed state. |
-| `features/simulation/ResourceHUD.tsx` | Reservoir/budget/leakage from confirmed state. |
-| `features/simulation/DecisionPanel.tsx` | Mtoni actions from `action_catalogue`; confirm + busy. |
-| `features/simulation/EventPanel.tsx` | Bounded Mtoni feedback + event log + AI status/fallback. |
-| `features/simulation/TurnTimeline.tsx` | History-driven timeline. |
-| `features/replay/ReplayPage.tsx` | Two-run comparison or recorded summary. |
-| `features/learning-report/ReportPage.tsx` | Report + debrief, with source/status disclosure. |
-| `components/ContrastToggle.tsx` | High-contrast theme + text-size preference. |
-| `components/LoadingState.tsx` | Shared loading/retry/empty component. |
-| `components/AudioControls.tsx` | Optional narration with text alternatives. |
-| `components/AccessibleButton.tsx` | Variants (primary, danger, loading) while keeping the accessible base. |
-| `app/auth/README.md` | Replace with the real auth approach or remove when screens land. |
-| `services/api.ts` | Surface `detail` messages; add abort/timeout if needed. |
-| `types/api.ts` | Keep mirroring `backend/app/api/schemas.py`; add missing response types (`HistoryResponse`, `ReportResponse`, `DebriefResponse`, `ReflectionResponse`, `ReplayResponse`, `WaterAccounting`, `Event`). |
-| `LobbyPage.tsx` | Remove the local `SessionCreated` construction for active runs; let the destination page fetch state. |
-| Tests | Expand beyond the single smoke test. |
+| Area                         | Remaining work                                                                                                                    |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Teacher assignments          | The API lists assigned missions but has no create/edit assignment endpoint. Add that only after the backend contract is extended. |
+| Stakeholder dialogue         | The current feedback response exposes status, not dialogue text. Add dialogue UI only when a response contract exists.            |
+| Charts and responsive polish | Consider visual trend charts and mobile-specific layout improvements; preserve accessible table/list alternatives.                |
+| Authenticated integration    | Verify Supabase role scoping and API access against the configured backend.                                                       |
+| Acceptance                   | Continue checking keyboard/touch access, reduced motion, offline recovery, and API error states on each changed route.            |
 
 ---
 
 ## 19. Common pitfalls
 
-- **Assuming Phaser is installed.** It is not. Check `package.json` before
-  importing it.
+- **Treating Phaser as the simulation engine.** Phaser renders the map only;
+  FastAPI owns all authoritative simulation outcomes.
 - **Creating `frontend/.env`.** Vite reads the root `.env` (`envDir: ".."`).
 - **Using the wrong env var name.** It is `VITE_API_BASE_URL`, not
   `VITE_API_URL`. The Supabase key is `VITE_SUPABASE_PUBLISHABLE_KEY`.
@@ -944,18 +941,22 @@ A frontend PR is ready when:
 The original plan, annotated with the current state of this repository:
 
 1. **0–1h:** layout, world-renderer skeleton, API shapes; joint contract
-   checkpoint. _Done in spirit: routing table, API wrapper, types exist; the
-   renderer is still a stub._
-2. **1–3h:** routes and briefing; align mission variables. _Routes done;
-   briefing is a placeholder._
-3. **3–5h:** world view with keyboard/touch-selectable locations. _Not built._
+   checkpoint. _Routing, typed API wrapper, and API-backed Phaser renderer are
+   implemented._
+2. **1–3h:** routes and briefing; align mission variables. _Mission lobby and
+   briefing flow are implemented._
+3. **3–5h:** world view with keyboard/touch-selectable locations. _Map and
+   equivalent location controls are implemented._
 4. **5–7h:** HUD, decision/confirmation, timeline; protect the vertical slice.
-   _Portfolio play loop works end-to-end; Mtoni panels are placeholders._
-5. **7–9h:** stakeholder/event panel and loading/error states. _Partial: event
-   rendering exists in `PortfolioRunPage`; dedicated panels and AI status UI are
-   not built._
+   _Confirmed-state HUD, idempotent decisions, and saved timeline are
+   implemented._
+5. **7–9h:** stakeholder/event panel and loading/error states. _Scripted event
+   and debrief panels are implemented; the current API does not provide
+   stakeholder dialogue text._
 6. **9–11h:** report, replay comparison, responsive/accessibility polish, demo
-   rehearsal. _Not built._
+   rehearsal. _Reports, replay comparison, teacher views, and explicit local
+   demo mode are implemented; continue polishing and verifying against the live
+   backend._
 
 Cut line reminder: at hour 7, stop adding features and protect the end-to-end
 mission. Do not cut deterministic state validation, persistence, key security,
