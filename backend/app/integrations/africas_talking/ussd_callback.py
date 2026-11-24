@@ -409,9 +409,7 @@ def process_ussd_callback(
             background_tasks=background_tasks,
         )
         updated_mobile = store.get_mobile(callback.session_id)
-        updated_state = (
-            updated_mobile.state if updated_mobile is not None else {}
-        )
+        updated_state = updated_mobile.state if updated_mobile is not None else {}
         completed = isinstance(updated_state, dict) and updated_state.get("screen") == "completed"
         return USSDOutcome(
             response=response,

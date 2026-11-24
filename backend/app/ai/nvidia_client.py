@@ -53,14 +53,14 @@ class AIUnavailableError(RuntimeError):
     """Raised when the configured model cannot return usable content."""
 
 
-def create_nvidia_client() -> OpenAI | None:
+def create_nvidia_client(*, timeout: float = 20.0) -> OpenAI | None:
     """Build a bounded client only when a backend API key is configured."""
     if not settings.nvidia_api_key:
         return None
     return OpenAI(
         base_url=settings.nvidia_base_url,
         api_key=settings.nvidia_api_key,
-        timeout=20.0,
+        timeout=timeout,
         max_retries=0,
     )
 
@@ -70,21 +70,33 @@ def configured_model() -> str:
     return settings.nvidia_model
 
 
-def complete_json(system_prompt: str, user_prompt: str, client: Any | None = None) -> str:
-    """Call NIM with fixed limits and return its raw content for strict parsing."""
-    nvidia = client if client is not None else create_nvidia_client()
+def complete_json(
+    system_prompt: str,
+    user_prompt: str,
+    client: Any | None = None,
+    *,
+    timeout: float = 20.0,
+    max_tokens: int = 350,
+    temperature: float = 0.3,
+    extra_body: dict[str, Any] | None = None,
+) -> str:
+    """Call NIM with bounded settings and return raw content for strict parsing."""
+    nvidia = client if client is not None else create_nvidia_client(timeout=timeout)
     if nvidia is None:
         raise AIUnavailableError("NVIDIA API key is not configured")
     try:
-        response = nvidia.chat.completions.create(
-            model=configured_model(),
-            messages=[
+        request: dict[str, Any] = {
+            "model": configured_model(),
+            "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            temperature=0.3,
-            max_tokens=350,
-        )
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        if extra_body is not None:
+            request["extra_body"] = extra_body
+        response = nvidia.chat.completions.create(**request)
     except Exception as exc:
         # Do not echo provider exceptions: they may contain request details.
         raise AIUnavailableError(type(exc).__name__) from None

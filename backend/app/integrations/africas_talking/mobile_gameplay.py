@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
+from app.ai.sms_intent import SMSPhase, interpret_sms_intent
 from app.api.schemas import USSDCallbackRequest
 from app.integrations.africas_talking.menu_state import (
     callback_request_key,
@@ -58,6 +59,111 @@ def _scenario(store: Any, session_id: UUID) -> dict[str, Any]:
         if scenario is not None:
             return scenario
     return load_scenario()
+
+
+def _sms_intent_context(
+    *, mobile: Any, store: Any, student_id: UUID
+) -> tuple[SMSPhase, list[str], list[str]]:
+    """Provide only the current screen's public choice labels to the intent parser."""
+    state = mobile.state if mobile is not None and isinstance(mobile.state, dict) else {}
+    screen = state.get("screen")
+    session_id = getattr(mobile, "session_id", None)
+    if not session_id:
+        return "lobby", [], []
+    session = store.get_simulation_session(session_id)
+    if session is None or session.student_id != student_id:
+        return "lobby", [], []
+    scenario = _scenario(store, session_id)
+    if screen == "turn":
+        choices = _choice_rows(scenario, str(state.get("language", "en")))
+        return "turn", [label for _, _, label in choices], []
+    if screen == "reflection":
+        reflection = scenario.get("reflection_choices", {})
+        codes = list(reflection)
+        labels = [
+            str(reflection[code].get("label", code))
+            if isinstance(reflection[code], dict)
+            else str(code)
+            for code in codes
+        ]
+        return "reflection", labels, codes
+    if screen == "hint":
+        return "hint", [], []
+    return "lobby", [], []
+
+
+def _is_direct_sms_command(command: str) -> bool:
+    """Keep exact, documented commands off the model path."""
+    direct = {
+        "GAMES",
+        "MICHEZO",
+        "PLAY",
+        "START",
+        "CONTINUE",
+        "ENDELEA",
+        "STATUS",
+        "MAENDELEO",
+        "MENU",
+        "HINT",
+        "DOKEZO",
+    }
+    if command in direct or command.isdigit():
+        return True
+    if command.startswith(("PLAY ", "CHEZA ")):
+        pieces = command.split()
+        return len(pieces) == 2 and pieces[1].isdigit()
+    if command.startswith(("WHY ", "KWA NINI ")):
+        pieces = command.split(maxsplit=1)
+        return len(pieces) == 2 and pieces[1].isdigit()
+    return False
+
+
+def _exact_game_index(command: str, games: list[Any]) -> int | None:
+    """Match short game names directly; longer natural phrasing goes through NVIDIA."""
+    text = " ".join(command.casefold().strip().split())
+    for index, game in enumerate(games, start=1):
+        title = str(getattr(game, "title", "Game"))
+        lowered = title.casefold()
+        aliases = {lowered}
+        if "mama mboga" in lowered or "soko" in lowered:
+            aliases.update({"soko", "market", "market game"})
+        elif "fever" in lowered:
+            aliases.update({"fever", "fever response"})
+        elif "chama" in lowered:
+            aliases.update({"chama", "trust circle"})
+        elif "mtoni" in lowered or "water" in lowered:
+            aliases.update({"mtoni", "water game", "mtoni water"})
+        if text in aliases:
+            return index
+    return None
+
+
+def _sms_help(language: str) -> str:
+    if language == "sw":
+        return (
+            "Amri za MtaaLab\nJIUNGE <code>: unganisha\nMICHEZO: orodha\n"
+            "CHEZA <n>: anza\nENDELEA: endelea\nANZA UJUMBE: vikumbusho\nACHA: simamisha"
+        )
+    return (
+        "MtaaLab commands\nJOIN <code>: link phone\nGAMES: list games\n"
+        "PLAY <n>: start\nCONTINUE: resume\nOPT IN: reminders\nSTOP: reminders off"
+    )
+
+
+def _sms_intent_fallback(phase: SMSPhase, language: str) -> str:
+    if language == "sw":
+        return {
+            "lobby": "Sijaelewa. Tuma MICHEZO au jina la mchezo, kama Soko.",
+            "turn": "Sijaelewa. Chagua namba au eleza hatua unayotaka.",
+            "reflection": "Eleza sababu yako, au tuma WHY 1, WHY 2 au WHY 3.",
+            "hint": "Tuma DOKEZO kupata kidokezo, au ENDELEA kucheza.",
+        }[phase]
+    return {
+        "lobby": "I didn't catch that. Text GAMES or send a game name, like Soko.",
+        "turn": "I didn't catch that. Choose a number or describe the action you want.",
+        "reflection": "Tell me why you chose it, or reply WHY 1, WHY 2 or WHY 3.",
+        "hint": "Text HINT for a clue or CONTINUE to play.",
+    }[phase]
 
 
 def _mission_title(store: Any, session_id: UUID) -> str:
@@ -449,15 +555,7 @@ def process_mobile_sms(
             else "Text OPT IN to enable reminders."
         )
     if command in {"HELP", "MSAADA", "?"}:
-        if language == "sw":
-            return (
-                "Amri za MtaaLab\nJIUNGE <code>: unganisha\nMICHEZO: orodha\n"
-                "CHEZA <n>: anza\nENDELEA: endelea\nANZA UJUMBE: vikumbusho\nACHA: simamisha"
-            )
-        return (
-            "MtaaLab commands\nJOIN <code>: link phone\nGAMES: list games\n"
-            "PLAY <n>: start\nCONTINUE: resume\nOPT IN: reminders\nSTOP: reminders off"
-        )
+        return _sms_help(language)
     if command.startswith(("JOIN ", "JIUNGE ")):
         # A learner may paste JOIN and follow-up commands into one multiline SMS.
         # Redeem only the one-time code token; later commands are not run here.
@@ -476,8 +574,7 @@ def process_mobile_sms(
             "Namba imeunganishwa.\nTuma MICHEZO kuchagua.\nKisha tuma CHEZA n.\n"
             "ANZA UJUMBE: vikumbusho."
             if language == "sw"
-            else "Phone linked.\nNext: send GAMES.\nThen: send PLAY n.\n"
-            "OPT IN enables reminders."
+            else "Phone linked.\nNext: send GAMES.\nThen: send PLAY n.\nOPT IN enables reminders."
         )
     student_id = _student(store, phone_number, ref)
     if student_id is None:
@@ -534,6 +631,86 @@ def process_mobile_sms(
     if mobile is not None and isinstance(mobile.state, dict) and mobile.state.get("mobile_v2"):
         language = str(mobile.state.get("language", language))
     games = _games(store, student_id)
+    phase, options, reflection_codes = _sms_intent_context(
+        mobile=mobile, store=store, student_id=student_id
+    )
+    if phase == "lobby" and command.isdigit():
+        # In a game list, replying with its number is the natural SMS equivalent of PLAY n.
+        command = f"PLAY {command}"
+    elif phase == "reflection" and command.isdigit():
+        command = f"WHY {command}"
+    elif phase == "reflection" and command in {"HINT", "DOKEZO"}:
+        command = "WHY 3"
+    if phase == "lobby" and not _is_direct_sms_command(command):
+        game_index = _exact_game_index(command, games)
+        if game_index is not None:
+            command = f"PLAY {game_index}"
+        else:
+            decision = interpret_sms_intent(
+                message=message,
+                phase=phase,
+                games=[str(getattr(game, "title", "Game")) for game in games],
+                options=[],
+            )
+            if decision is None or decision.intent == "unknown":
+                return _sms_intent_fallback(phase, language)
+            command = {
+                "list_games": "GAMES",
+                "start_game": f"PLAY {decision.selection_index}",
+                "continue_game": "CONTINUE",
+                "help": "HELP",
+            }.get(decision.intent, command)
+    elif phase != "lobby" and not _is_direct_sms_command(command):
+        scenario = _scenario(store, mobile.session_id) if mobile.session_id else {}
+        decision = interpret_sms_intent(
+            message=message,
+            phase=phase,
+            games=[str(getattr(game, "title", "Game")) for game in games],
+            options=options,
+        )
+        if decision is None or decision.intent == "unknown":
+            return _sms_intent_fallback(phase, language)
+        if decision.intent == "choose_action":
+            command = str(decision.selection_index)
+        elif decision.intent == "answer_reflection":
+            command = f"WHY {reflection_codes[decision.selection_index - 1]}"
+        elif decision.intent == "hint" and phase == "turn":
+            hint_level = 1
+            response = (
+                f"Dokezo {hint_level}: {_hint_text(scenario, language, hint_level)} Tuma ENDELEA."
+                if language == "sw"
+                else (
+                    f"Hint {hint_level}: {_hint_text(scenario, language, hint_level)} "
+                    "Reply CONTINUE."
+                )
+            )
+            _save(
+                store,
+                provider_id=mobile_id,
+                ref=ref,
+                session_id=mobile.session_id,
+                state=_remember(
+                    {**mobile.state, "screen": "hint", "hint_level": hint_level},
+                    request_key,
+                    response,
+                ),
+                request_key=request_key,
+                now=datetime.now(UTC),
+                ttl=MOBILE_TTL,
+            )
+            return response[:160]
+        elif decision.intent == "hint" and phase == "reflection":
+            command = "WHY 3"
+        else:
+            command = {
+                "list_games": "GAMES",
+                "start_game": f"PLAY {decision.selection_index}",
+                "continue_game": "CONTINUE",
+                "hint": "HINT",
+                "help": "HELP",
+            }.get(decision.intent, command)
+    if command == "HELP":
+        return _sms_help(language)
     if command in {"GAMES", "MICHEZO", "PLAY", "START"}:
         return _games_message(games, language)
     if command.startswith(("PLAY ", "CHEZA ")):
@@ -604,6 +781,27 @@ def process_mobile_sms(
     confirmed = getattr(session, "current_state", None) or getattr(session, "state", {})
     state = _state(confirmed)
     scenario = _scenario(store, mobile.session_id)
+    if command in {"MENU", "GAMES"}:
+        return _games_message(games, language)
+    if mobile.state.get("screen") == "turn" and command in {"HINT", "DOKEZO"}:
+        response = (
+            f"Dokezo 1: {_hint_text(scenario, language, 1)} Tuma ENDELEA."
+            if language == "sw"
+            else f"Hint 1: {_hint_text(scenario, language, 1)} Reply CONTINUE."
+        )
+        _save(
+            store,
+            provider_id=mobile_id,
+            ref=ref,
+            session_id=mobile.session_id,
+            state=_remember(
+                {**mobile.state, "screen": "hint", "hint_level": 1}, request_key, response
+            ),
+            request_key=request_key,
+            now=datetime.now(UTC),
+            ttl=MOBILE_TTL,
+        )
+        return response[:160]
     if mobile.state.get("screen") == "reflection":
         answer = command.removeprefix("WHY ").removeprefix("KWA NINI ").strip()
         if answer not in scenario.get("reflection_choices", {}):
@@ -666,8 +864,6 @@ def process_mobile_sms(
             if language == "sw"
             else "Reply HINT for another clue or CONTINUE to play."
         )
-    if command in {"MENU", "GAMES"}:
-        return _games_message(games, language)
     try:
         next_state, response, completed = _apply_choice(
             store=store,

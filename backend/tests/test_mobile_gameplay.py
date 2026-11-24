@@ -185,6 +185,14 @@ def test_join_sms_play_reflection_and_shared_ussd_progress(monkeypatch) -> None:
     from app.config import settings
 
     monkeypatch.setattr(settings, "phone_hmac_secret", HMAC_KEY)
+
+    def unexpected_ai_call(**_kwargs: object) -> None:
+        raise AssertionError("exact SMS commands must bypass NVIDIA")
+
+    monkeypatch.setattr(
+        "app.integrations.africas_talking.mobile_gameplay.interpret_sms_intent",
+        unexpected_ai_call,
+    )
     store = FakeMobileStore()
     gateway = FakeMobileGateway(store)
 
@@ -266,7 +274,7 @@ def test_join_sms_play_reflection_and_shared_ussd_progress(monkeypatch) -> None:
     assert resumed.startswith("CON Mtoni water resilience 1/6")
 
 
-def test_join_sms_with_followup_lines_redeems_only_the_code_and_guides_next_step(monkeypatch) -> None:
+def test_sms_join_handles_multiline_text(monkeypatch) -> None:
     from app.config import settings
 
     monkeypatch.setattr(settings, "phone_hmac_secret", HMAC_KEY)
@@ -288,6 +296,111 @@ def test_join_sms_with_followup_lines_redeems_only_the_code_and_guides_next_step
     assert "Then: send PLAY n" in response
     assert store.link is not None
     assert store.sessions == {}
+
+
+def test_sms_natural_language_selects_only_a_listed_game(monkeypatch) -> None:
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "phone_hmac_secret", HMAC_KEY)
+    store = FakeMobileStore()
+    store.link = SimpleNamespace(preferred_language="en", student_id=store.student_id)
+    gateway = FakeMobileGateway(store)
+    observed: dict[str, object] = {}
+
+    def interpret(**kwargs: object) -> SimpleNamespace:
+        observed.update(kwargs)
+        return SimpleNamespace(intent="start_game", selection_index=2)
+
+    monkeypatch.setattr(
+        "app.integrations.africas_talking.mobile_gameplay.interpret_sms_intent", interpret
+    )
+    response = process_mobile_sms(
+        phone_number=PHONE,
+        message="I want to try the market game",
+        provider_message_id="sms-natural-game-1",
+        received_at=None,
+        link_id=None,
+        store=store,
+        gateway=gateway,
+    )
+
+    assert response.startswith("Mama Mboga Market")
+    assert observed["phase"] == "lobby"
+    assert observed["games"] == [game.title for game in store.missions]
+    assert len(store.sessions) == 1
+    assert next(iter(store.sessions.values())).mission_id == store.missions[1].id
+
+
+def test_sms_natural_language_maps_to_one_valid_game_choice(monkeypatch) -> None:
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "phone_hmac_secret", HMAC_KEY)
+    store = FakeMobileStore()
+    store.link = SimpleNamespace(preferred_language="en", student_id=store.student_id)
+    gateway = FakeMobileGateway(store)
+    started = process_mobile_sms(
+        phone_number=PHONE,
+        message="PLAY 1",
+        provider_message_id="sms-natural-action-start",
+        received_at=None,
+        link_id=None,
+        store=store,
+        gateway=gateway,
+    )
+    assert started.startswith("Mtoni water resilience")
+    observed: dict[str, object] = {}
+
+    def interpret(**kwargs: object) -> SimpleNamespace:
+        observed.update(kwargs)
+        return SimpleNamespace(intent="choose_action", selection_index=2)
+
+    monkeypatch.setattr(
+        "app.integrations.africas_talking.mobile_gameplay.interpret_sms_intent", interpret
+    )
+    response = process_mobile_sms(
+        phone_number=PHONE,
+        message="I want to save water",
+        provider_message_id="sms-natural-action-1",
+        received_at=None,
+        link_id=None,
+        store=store,
+        gateway=gateway,
+    )
+
+    assert "Turn saved 1" in response
+    assert observed["phase"] == "turn"
+    assert observed["options"] == [
+        "Repair pipe",
+        "Save water",
+        "Water plan",
+        "Add storage",
+        "Irrigation",
+    ]
+    assert len(gateway.decision_keys) == 1
+
+    reflection_call: dict[str, object] = {}
+
+    def interpret_reflection(**kwargs: object) -> SimpleNamespace:
+        reflection_call.update(kwargs)
+        return SimpleNamespace(intent="answer_reflection", selection_index=3)
+
+    monkeypatch.setattr(
+        "app.integrations.africas_talking.mobile_gameplay.interpret_sms_intent",
+        interpret_reflection,
+    )
+    hint = process_mobile_sms(
+        phone_number=PHONE,
+        message="I am not sure why that happened",
+        provider_message_id="sms-natural-reflection-1",
+        received_at=None,
+        link_id=None,
+        store=store,
+        gateway=gateway,
+    )
+
+    assert hint.startswith("Hint 1:")
+    assert reflection_call["phase"] == "reflection"
+    assert store.reflections == [(next(iter(store.sessions)), store.student_id, 1, "3")]
 
 
 def test_ussd_shows_games_first_and_each_number_opens_its_matching_game(monkeypatch) -> None:

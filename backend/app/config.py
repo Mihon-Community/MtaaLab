@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     nvidia_api_key: str | None = None
     nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
     nvidia_model: str = "nvidia/nemotron-3.5-lightning-30b-a3b"
+    nvidia_sms_timeout_seconds: float = Field(default=5.0, ge=1.0, le=15.0)
     supabase_url: str | None = None
     supabase_jwks_url: str | None = None
     supabase_secret_key: str | None = None

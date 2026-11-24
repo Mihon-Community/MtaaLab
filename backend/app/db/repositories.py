@@ -76,13 +76,10 @@ class MissionRepository:
 
     def list_published(self, user_id: UUID) -> list[Mission]:
         """List published missions assigned to one of the caller's school classes."""
-        query = (
-            select(Mission)
-            .where(
-                Mission.status == "published",
-                Mission.published_version_id.is_not(None),
-                Mission.id.in_(self._assigned_mission_ids(user_id)),
-            )
+        query = select(Mission).where(
+            Mission.status == "published",
+            Mission.published_version_id.is_not(None),
+            Mission.id.in_(self._assigned_mission_ids(user_id)),
         )
         missions = list(self.session.scalars(query))
         return sorted(missions, key=lambda mission: mission_order_key(mission.title))
