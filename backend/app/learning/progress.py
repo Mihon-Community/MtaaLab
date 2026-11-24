@@ -1,1 +1,4 @@
-"""Progress summarizes recorded learner evidence; TODO(owner): implement ownership checks."""
+"""Teacher progress aggregation is deferred.
+
+Assigned learner reports are the current API surface.
+"""

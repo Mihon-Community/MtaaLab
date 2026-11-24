@@ -8,11 +8,14 @@ from uuid import UUID
 
 from sqlalchemy import (
     CheckConstraint,
+    Column,
     DateTime,
     ForeignKey,
     Index,
     Integer,
+    MetaData,
     String,
+    Table,
     Text,
     UniqueConstraint,
     Uuid,
@@ -25,6 +28,18 @@ from sqlalchemy.sql import func
 
 class Base(DeclarativeBase):
     """Base metadata for the version-controlled Supabase schema."""
+
+    metadata = MetaData(schema="public")
+
+
+# Supabase owns this table. Keep only the referenced key in metadata so ORM
+# dependency sorting can resolve Profile.id without managing auth schema DDL.
+_auth_users = Table(
+    "users",
+    Base.metadata,
+    Column("id", Uuid(as_uuid=True), primary_key=True),
+    schema="auth",
+)
 
 
 class School(Base):

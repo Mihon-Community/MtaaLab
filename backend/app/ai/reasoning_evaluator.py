@@ -13,21 +13,13 @@ from app.ai.nvidia_client import (
 )
 from app.ai.prompts.reasoning import build_reasoning_prompt
 from app.ai.schemas import CriterionFeedback, ReasoningAssessment
+from app.learning.rubrics import current_reasoning_rubric
 
-RUBRIC_VERSION = "mtoni-qualitative-v1"
+_REASONING_RUBRIC = current_reasoning_rubric()
+RUBRIC_VERSION = _REASONING_RUBRIC.version
 RUBRIC_CRITERIA = [
-    {
-        "criterion_id": "systems_thinking",
-        "description": "Connect water resources, infrastructure, and community needs.",
-    },
-    {
-        "criterion_id": "evidence_use",
-        "description": "Support an explanation with recorded simulation evidence.",
-    },
-    {
-        "criterion_id": "trade_off_reasoning",
-        "description": "Compare competing needs and explain a trade-off.",
-    },
+    {"criterion_id": criterion.criterion_id, "description": criterion.description}
+    for criterion in _REASONING_RUBRIC.criteria
 ]
 
 

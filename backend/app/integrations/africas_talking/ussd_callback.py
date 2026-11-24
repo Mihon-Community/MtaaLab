@@ -9,15 +9,15 @@ from typing import Any, Protocol
 from uuid import UUID
 
 from fastapi import Depends
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.schemas import USSDCallbackRequest, USSDMenuResponse
-from app.db.models import MobileSession, Profile, SimulationSession
+from app.db.models import MobileSession, Profile, SandboxPhoneMapping, SimulationSession
 from app.db.repositories import (
     DeliveryLogRepository,
     MissionRepository,
     MobileSessionRepository,
-    SandboxPhoneMappingRepository,
     SimulationRepository,
 )
 from app.db.session import get_db_session
@@ -85,17 +85,15 @@ class SQLAlchemyWebhookStore:
         self.db = db
 
     def get_demo_student_id(self, phone_ref: str) -> UUID | None:
-        student_id = SandboxPhoneMappingRepository(self.db).get_student_id(phone_ref)
-        if student_id is None:
-            return None
-        profile = self.db.get(Profile, student_id)
-        if (
-            profile is None
-            or profile.role != "student"
-            or profile.display_name != DEMO_PROFILE_NAME
-        ):
-            return None
-        return student_id
+        return self.db.scalar(
+            select(SandboxPhoneMapping.student_id)
+            .join(Profile, Profile.id == SandboxPhoneMapping.student_id)
+            .where(
+                SandboxPhoneMapping.phone_ref == phone_ref,
+                Profile.role == "student",
+                Profile.display_name == DEMO_PROFILE_NAME,
+            )
+        )
 
     def get_mobile(self, provider_session_id: str) -> MobileSession | None:
         return MobileSessionRepository(self.db).get_by_provider_session_id(
@@ -213,11 +211,15 @@ def _create_or_resume_session(
             return None
         start_key = f"ussd-start:{callback_request_key(provider_session_id, '')}"
         created = gateway.get_or_create_session(mission_id, student_id, idempotency_key=start_key)
-        session_id = created["session_id"]
-    else:
-        session_id = simulation_session.id
-    confirmed = gateway.get_state(session_id, student_id)
-    return session_id, _state_dict(confirmed["state"])
+        return created["session_id"], _state_dict(created["state"])
+
+    # The row came either from a lookup scoped to this student or from a prior
+    # explicit ownership check above. Reuse its confirmed JSON instead of
+    # issuing a second session-plus-version query through get_state().
+    current_state = getattr(simulation_session, "current_state", None)
+    if current_state is None:  # Keep lightweight callback test doubles compatible.
+        current_state = simulation_session.state
+    return simulation_session.id, _state_dict(current_state)
 
 
 def process_ussd_callback(

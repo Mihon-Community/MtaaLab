@@ -55,7 +55,7 @@ npm run dev
 
 Both apps read the single root `.env`, created from the single root `.env.example`.
 
-The apps start without provider credentials. Health check: `http://localhost:8000/api/health`. Product modules are stubs with TODOs and do not yet implement the mission.
+The backend simulation, persistence, AI feedback, and Africa's Talking sandbox callback modules are implemented. Provider calls need the corresponding credentials in the root `.env`. Health check: `http://localhost:8000/api/health`.
 
 ## Teammate guides
 
