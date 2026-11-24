@@ -6,19 +6,17 @@ Date: 2026-11-24
 
 | Check | Result |
 |---|---|
-| Complete non-NVIDIA backend suite in a disposable Docker network runner | 83 passed, 1 optional NVIDIA test deselected. This includes the live PostgreSQL persistence, replay/idempotency, concurrent-turn, and RLS checks. Synthetic rows were cleaned up. |
-| Backend unit and API tests on the host runner | 79 passed; database integration tests were excluded because that runner cannot establish the Supabase connection. |
+| Backend unit and API tests on the host runner | 88 passed, 4 skipped. Three persistence cases and one RLS case skipped because this runner cannot connect directly to Supabase. |
 | Optional NVIDIA NIM smoke test | 1 passed with one bounded, non-identifying request. |
-| Africa's Talking callback unit tests | 14 passed. |
-| Rubric registry tests | 2 passed. |
-| Ruff lint and formatting | Passed. |
-| Docker backend rebuild and health check | Rebuilt; `GET /api/health` returned 200 and the backend container was healthy. |
-| Africa's Talking SMS sandbox | Multiple manual sends returned `sent`; three matching delivery-log records are present. This is provider acceptance, not confirmation of handset delivery. |
-| USSD callback through the public tunnel | Four authenticated requests completed: dial menu, repair confirmation, one persisted turn, and duplicate retry. Each returned HTTP 200; the duplicate returned the stored response and did not apply a second decision. The generated test simulation was removed. |
+| Focused Africa's Talking and mobile-session tests | 28 passed, covering SMS play, retries, separate SMS/USSD sessions, replay, callback authentication, and persistence upsert rules. |
+| Ruff lint and formatting | `ruff check .` passed; all 71 backend files are formatted. |
+| Docker backend rebuild and health check | Rebuilt the Compose stack. Backend is healthy, `/api/health` returns `{"status":"ok"}`, and `/webhook/incoming` is registered. |
+| Africa's Talking SMS sandbox | Manual sandbox send and a direct explanatory reply returned `sent`; this is provider acceptance, not confirmation of handset delivery. No delivery-report callback has been observed yet. |
+| Public callback route | ngrok endpoint is connected to `http://localhost:8000`; the SMS gameplay path still needs a real Africa's Talking simulator interaction to confirm provider delivery. |
 
-The configured public tunnel is reachable. A request without the webhook token receives `401`, so the current ngrok process does not inject `WEBHOOK_TOKEN`. `backend/scripts/start-ngrok.ps1` now prepares a temporary path-scoped Traffic Policy from the single root `.env`; its `-ValidateOnly` mode passed. The real Africa's Talking simulator was not started because the active tunnel needs to be restarted with that policy and the provider dashboard callback must point to the tunnel URL.
+The previous callback integration used `/api/webhooks/africastalking/...` routes and expected the token in a header. The current Africa's Talking callback URLs use a `token` query parameter and root paths. The backend accepts `POST /ussd?token=...` and `POST /webhook/incoming?token=...`; the previous API USSD and SMS-status URLs remain supported. Incoming SMS now starts and advances Mtoni through a separate saved simulation session using the same deterministic game engine as USSD. A fresh interaction in the Africa's Talking simulator is still needed to confirm handset delivery.
 
-One local cold-start callback took about 11.8 seconds; the other measured local callbacks ranged from about 1.4 to 5.3 seconds. SQL instrumentation on one new-session callback observed 14 statements totaling about 3.2 seconds. The USSD path was reduced to avoid repeated session/state reads. Supabase response time varies between calls, so these measurements are a development baseline rather than a production latency guarantee.
+One earlier cold-start callback took about 11.8 seconds; historical full-session callbacks ranged from about 1.4 to 8.9 seconds. SQL instrumentation on one new-session callback observed 14 statements totaling about 3.2 seconds. The latest rebuilt public USSD probe took 5.0 seconds cold and 1.3 seconds warm, but used an unmapped phone and exited before loading or writing a mission session. The orchestration now reuses the session state and status already loaded for the callback instead of looking up that row again. Supabase response time varies between calls, so these are development measurements rather than a production latency guarantee.
 
 ## Acceptance coverage
 
@@ -35,8 +33,8 @@ One local cold-start callback took about 11.8 seconds; the other measured local 
 | AI-03 | Pass | Missing-key and timeout fallback paths pass; the optional live NIM smoke test also passed. |
 | DB-01 | Pass | Live API-to-PostgreSQL integration flow and session ownership checks. |
 | DB-02 | Pass, manual | Supabase RLS was previously checked with an `anon` write attempt and denied. Automated host-runner DB check cannot connect from this environment. |
-| AT-01 | Application flow pass; provider simulator pending | Public tunnel callback flow applies one valid turn and deduplicates a retry. The Africa's Talking simulator itself still needs a dashboard-configured callback and ngrok header injection. |
-| AT-02 | Partial | Sandbox SMS API returned `sent` repeatedly and logs provider outcomes. No handset delivery was confirmed. |
+| AT-01 | Application flow pass; provider simulator pending after menu polish | The USSD flow applies one valid turn and deduplicates a retry. Root `/ussd` with query-token auth is covered by unit tests; a fresh Africa's Talking simulator callback is still needed after rebuilding the container. |
+| AT-02 | Outbound provider acceptance pass; SMS gameplay needs a fresh simulator run | Sandbox SMS API returned `sent`. Automated coverage exercises gameplay choices, separate SMS/USSD sessions, retries, and replies; a fresh Africa's Talking simulator run is needed to confirm handset delivery. |
 | AT-03 | Pass, mocked | Missing API key returns `not_configured` without raising. |
 | MOB-01 | Backend pass; frontend out of scope | USSD duplicate and persistence paths pass. Browser offline/reconnect behavior belongs to the frontend. |
 | REP-01 | Pass | Live replay integration preserves the source run and initial state. |
@@ -49,7 +47,7 @@ The Mtoni scenario values remain marked as placeholders pending team review. Do 
 
 LTI 1.3 is explicitly a later phase in the project specification; the prototype's launch context is simulated. Teacher progress aggregation is also outside the current API contract; the backend exposes assignment-scoped missions and learner reports. These items need product-owner scope before adding new APIs.
 
-## Africa's Talking setup still needed for a provider-originated USSD session
+## Africa's Talking callback setup
 
 1. Keep Docker running and stop the existing ngrok tunnel with Ctrl+C.
 2. From the repository root, start the tunnel with the root `.env` token policy:
@@ -58,7 +56,7 @@ LTI 1.3 is explicitly a later phase in the project specification; the prototype'
    powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\backend\scripts\start-ngrok.ps1
    ```
 
-3. In the Africa's Talking dashboard, set the sandbox service-code callback to `<PUBLIC_BASE_URL>/api/webhooks/africastalking/ussd`. Put the exact sandbox service code in `AT_USSD_SERVICE_CODE` and the test phone in `AT_ALLOWED_PHONES` in the root `.env` before restarting Docker.
-4. Keep the computer awake while using the Africa's Talking simulator. Its real callback flow still needs a provider-side test.
+3. In the Africa's Talking dashboard, set the sandbox service-code callback to `<PUBLIC_BASE_URL>/ussd?token=<WEBHOOK_TOKEN>`. Set Incoming Messages to `<PUBLIC_BASE_URL>/webhook/incoming?token=<WEBHOOK_TOKEN>` and delivery reports, if enabled, to `<PUBLIC_BASE_URL>/api/webhooks/africastalking/sms-status?token=<WEBHOOK_TOKEN>`.
+4. Keep the computer awake while using the Africa's Talking simulator. Send `PLAY` to the configured sandbox short code, then follow the numbered action and confirmation prompts. Send `MENU` to return to the main menu and `HELP` for the choices. Only a phone mapped to an assigned demo learner can play. For a standalone outbound SMS check, run `docker compose exec backend python -m scripts.send_test_sms`; confirm the result in the simulator rather than treating `sent` as final delivery.
 
 No `.env` values or provider credentials are committed to this branch.

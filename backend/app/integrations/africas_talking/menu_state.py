@@ -78,29 +78,39 @@ def render_menu(
     """Render the current short menu from confirmed state and static scenario values."""
     menu_state = menu_state or {}
     if screen == "main":
-        body = (
-            f"Mtoni turn {state.get('current_turn', 0)}. "
-            f"Water {_value(state.get('reservoir_level', 0))}; "
-            f"budget {_value(state.get('budget_remaining', 0))}. "
-            "1 Repair 2 Conserve 3 Allocate 4 Needs 0 Exit"
+        turn = state.get("current_turn", 0)
+        total_turns = scenario.get("number_of_turns", "?")
+        return _con(
+            "\n".join(
+                (
+                    f"Mtoni turn {turn}/{total_turns}",
+                    f"Water: {_value(state.get('reservoir_level', 0))}  "
+                    f"Budget: {_value(state.get('budget_remaining', 0))}",
+                    "Choose an action:",
+                    "1 Repair pipe",
+                    "2 Save water",
+                    "3 Water plan",
+                    "4 Community needs",
+                    "0 Exit",
+                )
+            )
         )
-        return _con(body)
     if screen == "confirm_repair":
         cost = scenario.get("actions", {}).get("repair_main_pipe", {}).get("cost", 0)
-        return _con(f"Repair pipe costs {_value(cost)} credits. 1 Confirm 2 Cancel")
+        return _con(f"Repair main pipe costs {_value(cost)} credits.\n1 Confirm\n2 Cancel")
     if screen == "confirm_conservation":
         cost = scenario.get("actions", {}).get("conservation_campaign", {}).get("cost", 0)
-        return _con(f"Conservation costs {_value(cost)} credits. 1 Confirm 2 Cancel")
+        return _con(f"Save water costs {_value(cost)} credits.\n1 Confirm\n2 Cancel")
     if screen == "allocation":
         options = allocation_choices(scenario)
-        choices = " ".join(f"{index}. {label}" for index, (_, label) in enumerate(options, 1))
-        return _con(f"Allocation policy: {choices} 0 Back")
+        choices = "\n".join(f"{index} {label}" for index, (_, label) in enumerate(options, 1))
+        return _con(f"Water plan:\n{choices}\n0 Back")
     if screen == "confirm_allocation":
         policy_id = menu_state.get("pending_policy")
         policy = scenario.get("allocation_policies", {}).get(policy_id, {})
         label = policy.get("label", policy_id or "policy")
         cost = scenario.get("actions", {}).get("change_allocation", {}).get("cost", 0)
-        return _con(f"Set {label}; cost {_value(cost)} credits. 1 Confirm 2 Cancel")
+        return _con(f"Set {label}; cost {_value(cost)} credits.\n1 Confirm\n2 Cancel")
     if screen == "inspect":
         demand = state.get("demand_by_sector", {})
         needs = " ".join(
@@ -112,8 +122,8 @@ def render_menu(
                 ("F", "farms"),
             )
         )
-        return _con(f"Community needs H/S/C/F: {needs}. 0 Back")
-    return _con("Invalid choice. 1 Repair 2 Conserve 3 Allocate 4 Needs 0 Exit")
+        return _con(f"Community needs:\n{needs}\n0 Back")
+    return _con("Invalid choice.\n1 Repair pipe\n2 Save water\n3 Water plan\n4 Needs\n0 Exit")
 
 
 def invalid_choice(
@@ -218,17 +228,21 @@ def process_input(
 def completion_message(state: dict[str, Any]) -> str:
     """Return a short non-identifying summary for the terminal USSD screen."""
     return _end(
-        f"Mission complete. Turn {state.get('current_turn', 0)}; "
+        f"Mission complete.\nTurn {state.get('current_turn', 0)}; "
         f"water {_value(state.get('reservoir_level', 0))}; "
-        f"budget {_value(state.get('budget_remaining', 0))}. Sandbox demo."
+        f"budget {_value(state.get('budget_remaining', 0))}."
     )
 
 
 def recorded_message(state: dict[str, Any]) -> str:
     """Tell the learner the committed turn before showing the next menu."""
     return _con(
-        f"Decision recorded at turn {state.get('current_turn', 0)}. "
-        f"Water {_value(state.get('reservoir_level', 0))}; "
-        f"budget {_value(state.get('budget_remaining', 0))}. "
-        "1 Repair 2 Conserve 3 Allocate 4 Needs 0 Exit"
+        f"Decision recorded at turn {state.get('current_turn', 0)}.\n"
+        f"Water: {_value(state.get('reservoir_level', 0))}\n"
+        f"Budget: {_value(state.get('budget_remaining', 0))}\n"
+        "1 Repair pipe\n"
+        "2 Save water\n"
+        "3 Water plan\n"
+        "4 Community needs\n"
+        "0 Exit"
     )

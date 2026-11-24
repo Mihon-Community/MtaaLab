@@ -268,10 +268,19 @@ class MobileSessionRepository:
         state: dict[str, Any],
         expires_at: datetime,
         last_request_key: str | None,
+        replace_session_id: bool = False,
     ) -> MobileSession:
-        """Insert callback state or update it while keeping its identity immutable."""
+        """Upsert state; phone identity stays fixed and SMS replay may replace its run."""
         if re.fullmatch(r"[a-f0-9]{64}", phone_ref) is None:
             raise ValueError("phone_ref must be a lowercase SHA-256 digest")
+        update_values = {
+            "current_menu": current_menu,
+            "state": state,
+            "expires_at": expires_at,
+            "last_request_key": last_request_key,
+        }
+        if replace_session_id:
+            update_values["session_id"] = session_id
         statement = (
             pg_insert(MobileSession)
             .values(
@@ -285,12 +294,7 @@ class MobileSessionRepository:
             )
             .on_conflict_do_update(
                 constraint="mobile_sessions_provider_session_id_key",
-                set_={
-                    "current_menu": current_menu,
-                    "state": state,
-                    "expires_at": expires_at,
-                    "last_request_key": last_request_key,
-                },
+                set_=update_values,
             )
             .returning(MobileSession)
         )

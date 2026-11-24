@@ -127,12 +127,21 @@ def send_sms(
     *,
     session_id: UUID | None = None,
     recipient_ref: str | None = None,
+    sender_id: str | None = None,
 ) -> SmsResult:
     """Send one short sandbox SMS; never initialize the SDK at import time."""
     phone = recipient.strip()
     safe_recipient_ref = recipient_ref or sha256(phone.encode("utf-8")).hexdigest()
     if not phone or len(phone) > 32:
         result = SmsResult(status="failed", error_code="invalid_recipient")
+        _persist_delivery(result=result, recipient_ref=safe_recipient_ref, session_id=session_id)
+        return result
+
+    safe_sender_id = sender_id.strip() if sender_id else None
+    if safe_sender_id and (
+        len(safe_sender_id) > 32 or not re.fullmatch(r"[A-Za-z0-9+_.-]+", safe_sender_id)
+    ):
+        result = SmsResult(status="failed", error_code="invalid_sender_id")
         _persist_delivery(result=result, recipient_ref=safe_recipient_ref, session_id=session_id)
         return result
 
@@ -155,7 +164,10 @@ def send_sms(
 
             africastalking.initialize(settings.at_username or "sandbox", api_key)
             sms = africastalking.SMS
-        response = sms.send(safe_message, [phone])
+        if safe_sender_id:
+            response = sms.send(safe_message, [phone], sender_id=safe_sender_id)
+        else:
+            response = sms.send(safe_message, [phone])
         result = _provider_result(response)
     except Exception as error:
         result = SmsResult(

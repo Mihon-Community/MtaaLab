@@ -90,6 +90,26 @@ def test_mobile_session_can_be_locked_and_upsert_preserves_owner_identity() -> N
     assert "session_id = excluded.session_id" not in statement
 
 
+def test_sms_replay_explicitly_replaces_its_simulation_session() -> None:
+    session = FakeSession(returned_row=SimpleNamespace(provider_session_id="sms:ref"))
+
+    MobileSessionRepository(session).upsert(
+        provider_session_id="sms:ref",
+        phone_ref=PHONE_REF,
+        session_id=SESSION_ID,
+        current_menu="main",
+        state={"screen": "main"},
+        expires_at=datetime.now(UTC),
+        last_request_key="request-hash",
+        replace_session_id=True,
+    )
+
+    statement = str(session.statement.compile(dialect=postgresql.dialect()))
+    assert "SET session_id =" in statement
+    assert "current_menu =" in statement
+    assert "phone_ref = excluded.phone_ref" not in statement
+
+
 def test_mobile_session_rejects_raw_phone_values() -> None:
     session = FakeSession()
 

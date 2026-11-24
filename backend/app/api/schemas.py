@@ -152,6 +152,19 @@ class SMSStatusCallbackRequest(APIModel):
     failure_reason: str | None = Field(default=None, alias="failureReason", max_length=160)
 
 
+class IncomingSMSCallbackRequest(APIModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    sender: str = Field(alias="from", min_length=6, max_length=32)
+    text: str = Field(max_length=500)
+    recipient: str | None = Field(default=None, alias="to", max_length=64)
+    provider_message_id: str | None = Field(default=None, alias="id", max_length=128)
+    link_id: str | None = Field(default=None, alias="linkId", max_length=128)
+    date: str | None = Field(default=None, max_length=64)
+    network_code: str | None = Field(default=None, alias="networkCode", max_length=64)
+    retry_count: str | None = Field(default=None, alias="retryCount", max_length=16)
+
+
 class USSDMenuResponse(APIModel):
     message: str = Field(min_length=5, max_length=160, pattern=r"^(CON|END) ")
 

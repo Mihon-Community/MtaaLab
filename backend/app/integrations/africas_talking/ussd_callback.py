@@ -39,6 +39,7 @@ from .sms_service import send_mission_sms
 
 logger = logging.getLogger(__name__)
 MOBILE_SESSION_TTL = timedelta(seconds=180)
+SMS_SESSION_TTL = timedelta(days=30)
 DEMO_PROFILE_NAME = "Demo Student"
 DEMO_MISSION_TITLE = "Mtoni water resilience"
 
@@ -66,6 +67,7 @@ class WebhookStore(Protocol):
         state: dict[str, Any],
         expires_at: datetime,
         last_request_key: str,
+        replace_session_id: bool = False,
     ) -> None: ...
 
     def save_sms_status(
@@ -121,6 +123,7 @@ class SQLAlchemyWebhookStore:
         state: dict[str, Any],
         expires_at: datetime,
         last_request_key: str,
+        replace_session_id: bool = False,
     ) -> None:
         MobileSessionRepository(self.db).upsert(
             provider_session_id=provider_session_id,
@@ -130,6 +133,7 @@ class SQLAlchemyWebhookStore:
             state=state,
             expires_at=expires_at,
             last_request_key=last_request_key,
+            replace_session_id=replace_session_id,
         )
         self.db.commit()
 
@@ -196,22 +200,25 @@ def _create_or_resume_session(
     student_id: UUID,
     mobile: MobileSession | None,
     provider_session_id: str,
-) -> tuple[UUID, dict[str, Any]] | None:
+    session_channel: str = "ussd",
+) -> tuple[UUID, dict[str, Any], str] | None:
     """Reuse an active learner session or create one from the assigned Mtoni mission."""
     simulation_session = None
     if mobile is not None:
         simulation_session = store.get_simulation_session(mobile.session_id)
         if simulation_session is not None and simulation_session.student_id != student_id:
             return None
-    if simulation_session is None or simulation_session.status != "active":
+    if (simulation_session is None or simulation_session.status != "active") and (
+        session_channel == "ussd"
+    ):
         simulation_session = store.get_active_session(student_id)
     if simulation_session is None:
         mission_id = store.get_mtoni_mission_id(student_id)
         if mission_id is None:
             return None
-        start_key = f"ussd-start:{callback_request_key(provider_session_id, '')}"
+        start_key = f"{session_channel}-start:{callback_request_key(provider_session_id, '')}"
         created = gateway.get_or_create_session(mission_id, student_id, idempotency_key=start_key)
-        return created["session_id"], _state_dict(created["state"])
+        return created["session_id"], _state_dict(created["state"]), str(created["status"])
 
     # The row came either from a lookup scoped to this student or from a prior
     # explicit ownership check above. Reuse its confirmed JSON instead of
@@ -219,7 +226,7 @@ def _create_or_resume_session(
     current_state = getattr(simulation_session, "current_state", None)
     if current_state is None:  # Keep lightweight callback test doubles compatible.
         current_state = simulation_session.state
-    return simulation_session.id, _state_dict(current_state)
+    return simulation_session.id, _state_dict(current_state), simulation_session.status
 
 
 def process_ussd_callback(
@@ -230,6 +237,11 @@ def process_ussd_callback(
     background_tasks: Any,
     configured_phones: str = "",
     now: datetime | None = None,
+    session_channel: str = "ussd",
+    request_key_override: str | None = None,
+    session_ttl: timedelta | None = None,
+    force_main_menu: bool = False,
+    start_new_run: bool = False,
 ) -> USSDOutcome:
     """Process one provider callback with bounded state and deterministic decisions only."""
     current_time = now or datetime.now(UTC)
@@ -245,7 +257,7 @@ def process_ussd_callback(
     if mobile is not None and mobile.phone_ref != phone_ref:
         return USSDOutcome(response="END This sandbox session is not available.")
 
-    request_key = callback_request_key(callback.session_id, callback.text)
+    request_key = request_key_override or callback_request_key(callback.session_id, callback.text)
     recent_requests = (
         mobile.state.get("recent_requests", []) if mobile and isinstance(mobile.state, dict) else []
     )
@@ -268,12 +280,45 @@ def process_ussd_callback(
     ):
         return USSDOutcome(response=_validated_response(mobile.state["last_response"]))
 
+    ttl = session_ttl or MOBILE_SESSION_TTL
     expired = mobile is not None and mobile.expires_at <= current_time
+    replace_session_id = False
+    session_data_override = None
     if mobile is not None:
         previous_session = store.get_simulation_session(mobile.session_id)
         if previous_session is not None and previous_session.student_id != student_id:
             return USSDOutcome(response="END This sandbox session is not available.")
-        if previous_session is not None and previous_session.status == "completed":
+        if (
+            session_channel == "sms"
+            and start_new_run
+            and previous_session is not None
+            and (
+                previous_session.status == "completed"
+                or (isinstance(mobile.state, dict) and mobile.state.get("screen") == "ended")
+            )
+        ):
+            mission_id = store.get_mtoni_mission_id(student_id)
+            if mission_id is None:
+                return USSDOutcome(
+                    response="END The Mtoni mission is not assigned to this demo learner."
+                )
+            created = gateway.get_or_create_session(
+                mission_id,
+                student_id,
+                idempotency_key=f"sms-replay:{request_key}",
+            )
+            session_data_override = (
+                created["session_id"],
+                _state_dict(created["state"]),
+                str(created["status"]),
+            )
+            replace_session_id = True
+            expired = False
+        if (
+            session_data_override is None
+            and previous_session is not None
+            and previous_session.status == "completed"
+        ):
             confirmed = gateway.get_state(mobile.session_id, student_id)
             response = completion_message(_state_dict(confirmed["state"]))
             menu_state = _menu_state(mobile, False)
@@ -290,26 +335,31 @@ def process_ussd_callback(
                     "last_response": response,
                     "recent_requests": requests,
                 },
-                expires_at=current_time + MOBILE_SESSION_TTL,
+                expires_at=current_time + ttl,
                 last_request_key=request_key,
             )
             return USSDOutcome(response=response)
-        if isinstance(mobile.state, dict) and mobile.state.get("screen") == "ended" and not expired:
+        if (
+            session_data_override is None
+            and isinstance(mobile.state, dict)
+            and mobile.state.get("screen") == "ended"
+            and not expired
+        ):
             return USSDOutcome(response="END MtaaLab sandbox demo ended.")
 
-    session_data = _create_or_resume_session(
+    session_data = session_data_override or _create_or_resume_session(
         store=store,
         gateway=gateway,
         student_id=student_id,
         mobile=mobile,
         provider_session_id=callback.session_id,
+        session_channel=session_channel,
     )
     if session_data is None:
         return USSDOutcome(response="END The Mtoni mission is not assigned to this demo learner.")
-    session_id, state = session_data
+    session_id, state, session_status = session_data
 
-    existing_session = store.get_simulation_session(session_id)
-    if existing_session is not None and existing_session.status == "completed":
+    if session_status == "completed":
         response = completion_message(state)
         store.save_mobile(
             provider_session_id=callback.session_id,
@@ -317,12 +367,14 @@ def process_ussd_callback(
             session_id=session_id,
             current_menu="ended",
             state={"screen": "ended", "last_response": response},
-            expires_at=current_time + MOBILE_SESSION_TTL,
+            expires_at=current_time + ttl,
             last_request_key=request_key,
         )
         return USSDOutcome(response=response)
 
     menu_state = _menu_state(mobile, expired)
+    if force_main_menu:
+        menu_state["screen"] = "main"
     screen = "main" if expired else str(menu_state.get("screen", "main"))
     scenario = load_scenario()
     transition = process_input(callback.text, screen, state, scenario, menu_state)
@@ -336,8 +388,14 @@ def process_ussd_callback(
             expected_turn=expected_turn,
         )
         menu_state = _menu_state(mobile, expired)
+        if force_main_menu:
+            menu_state["screen"] = "main"
         step_index = len(split_cumulative_text(callback.text))
-        decision_key = f"ussd:{callback.session_id}:{step_index}"
+        decision_key = (
+            f"sms:{request_key}"
+            if session_channel == "sms"
+            else f"ussd:{callback.session_id}:{step_index}"
+        )
         try:
             turn_result = gateway.submit_decision(session_id, student_id, action, decision_key)
             state = _state_dict(turn_result.state)
@@ -360,14 +418,15 @@ def process_ussd_callback(
                     f"Your Mtoni mission is complete. Water {water}; budget {budget}. "
                     "Review your report online."
                 )
-                background_tasks.add_task(
-                    send_mission_sms,
-                    callback.phone_number,
-                    "Mtoni",
-                    summary,
-                    session_id=session_id,
-                    recipient_ref=phone_ref,
-                )
+                if session_channel == "ussd":
+                    background_tasks.add_task(
+                        send_mission_sms,
+                        callback.phone_number,
+                        "Mtoni",
+                        summary,
+                        session_id=session_id,
+                        recipient_ref=phone_ref,
+                    )
                 transition_screen = "ended"
                 transition_state = {
                     "screen": transition_screen,
@@ -380,8 +439,9 @@ def process_ussd_callback(
                     session_id=session_id,
                     current_menu=transition_screen,
                     state={**transition_state, "last_response": response},
-                    expires_at=current_time + MOBILE_SESSION_TTL,
+                    expires_at=current_time + ttl,
                     last_request_key=request_key,
+                    replace_session_id=replace_session_id,
                 )
                 return USSDOutcome(
                     response=response,
@@ -421,10 +481,85 @@ def process_ussd_callback(
         session_id=session_id,
         current_menu=transition_screen,
         state=transition_state,
-        expires_at=current_time + MOBILE_SESSION_TTL,
+        expires_at=current_time + ttl,
         last_request_key=request_key,
+        replace_session_id=replace_session_id,
     )
-    return USSDOutcome(response=response)
+    return USSDOutcome(response=response, session_id=session_id, phone_ref=phone_ref)
+
+
+def process_sms_game_message(
+    *,
+    phone_number: str,
+    message: str,
+    provider_message_id: str | None,
+    received_at: str | None,
+    link_id: str | None,
+    store: WebhookStore,
+    gateway: SimulationGateway,
+    background_tasks: Any,
+    configured_phones: str = "",
+) -> USSDOutcome:
+    """Run one SMS menu choice through the same persistent deterministic game flow."""
+    command = " ".join(message.upper().split())
+    help_reply = (
+        "MtaaLab Mtoni by SMS: text PLAY. Reply 1 repair, 2 save water, "
+        "3 water plan, 4 needs, or 0 exit. Reply HELP for help."
+    )
+    if command in {"HELP", "?"}:
+        return USSDOutcome(response=help_reply)
+
+    phone_ref = phone_reference(phone_number)
+    mobile_id = f"sms:{phone_ref}"
+    mobile = store.get_mobile(mobile_id)
+    if mobile is None and command not in {"PLAY", "START"}:
+        return USSDOutcome(
+            response="MtaaLab Mtoni by SMS. Text PLAY to start. Reply HELP for the menu."
+        )
+
+    force_main_menu = command in {"PLAY", "START", "MENU", "STATUS"}
+    start_new_run = False
+    if command == "PLAY" and mobile is not None:
+        existing_session = store.get_simulation_session(mobile.session_id)
+        start_new_run = existing_session is not None and (
+            existing_session.status == "completed"
+            or (isinstance(mobile.state, dict) and mobile.state.get("screen") == "ended")
+        )
+
+    request_source = provider_message_id or f"{received_at or ''}\0{link_id or ''}\0{message}"
+    request_key = callback_request_key(mobile_id, request_source)
+    callback = USSDCallbackRequest(
+        sessionId=mobile_id,
+        serviceCode="sms",
+        phoneNumber=phone_number,
+        text="" if force_main_menu else command,
+        networkCode="",
+    )
+    outcome = process_ussd_callback(
+        callback,
+        store=store,
+        gateway=gateway,
+        background_tasks=background_tasks,
+        configured_phones=configured_phones,
+        session_channel="sms",
+        request_key_override=request_key,
+        session_ttl=SMS_SESSION_TTL,
+        force_main_menu=force_main_menu,
+        start_new_run=start_new_run,
+    )
+    response = outcome.response
+    if response.startswith(("CON ", "END ")):
+        response = response[4:]
+    if response == "This number is not linked to the sandbox demo.":
+        response = "This number is not linked yet. Ask your teacher to enable SMS play."
+    if outcome.completed:
+        response = f"{response} Text PLAY to replay."
+    return USSDOutcome(
+        response=response[:160],
+        completed=outcome.completed,
+        session_id=outcome.session_id,
+        phone_ref=phone_ref,
+    )
 
 
 def _format_value(value: Any) -> str:
