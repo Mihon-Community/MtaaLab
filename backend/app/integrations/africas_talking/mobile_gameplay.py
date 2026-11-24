@@ -221,7 +221,7 @@ def _choice_rows(scenario: dict[str, Any], language: str) -> list[tuple[str, dic
 
 def _turn_menu(title: str, scenario: dict[str, Any], state: dict[str, Any], language: str) -> str:
     choices = _choice_rows(scenario, language)
-    labels = " ".join(f"{index} {label}" for index, (_, _, label) in enumerate(choices, 1))
+    labels = [f"{index} {label}" for index, (_, _, label) in enumerate(choices, 1)]
     turn = state.get("current_turn", 0)
     total = scenario.get("number_of_turns", 6)
     scenario_id = scenario.get("scenario_id")
@@ -259,7 +259,8 @@ def _turn_menu(title: str, scenario: dict[str, Any], state: dict[str, Any], lang
             "chama_circle": "Chama",
             "mtoni": "Mtoni Maji",
         }.get(str(scenario_id), title[:18])
-    body = f"{title} {turn}/{total}. {values}. {prompt}: {labels}. 0 Menu"
+    menu = "0 Menyu" if language == "sw" else "0 Menu"
+    body = "\n".join([f"{title} {turn}/{total}", values, f"{prompt}:", *labels, menu])
     return body[:156]
 
 
@@ -278,10 +279,11 @@ def _games_message(games: list[Any], language: str, prefix: str = "") -> str:
             short_names.append("Mtoni Maji" if language == "sw" else "Mtoni water")
         else:
             short_names.append(name[:18])
-    head = "Chagua mchezo" if language == "sw" else "Choose game"
-    values = " ".join(f"{index} {name}" for index, name in enumerate(short_names, 1))
-    command = "Tuma CHEZA n" if language == "sw" else "Text PLAY n"
-    return f"{prefix}{head}: {values}. {command}"[:160]
+    head = "Michezo:" if language == "sw" else "Games:"
+    values = [f"{index} {name}" for index, name in enumerate(short_names, 1)]
+    command = "Tuma CHEZA n" if language == "sw" else "Reply PLAY n"
+    lines = [prefix.strip(), head, *values, command]
+    return "\n".join(line for line in lines if line)[:160]
 
 
 def _reflect_prompt(scenario: dict[str, Any], language: str) -> str:
@@ -292,15 +294,13 @@ def _reflect_prompt(scenario: dict[str, Any], language: str) -> str:
             "chama_circle": ["Akiba husaidia", "Akiba haiwezi kopeshwa", "Nahitaji dokezo"],
             "mtoni": ["Maji hayakutosha", "Mgao ulibadili matokeo", "Nahitaji dokezo"],
         }.get(str(scenario.get("scenario_id")), ["Sababu 1", "Sababu 2", "Nahitaji dokezo"])
-        choices = " ".join(f"{index} {label}" for index, label in enumerate(labels, 1))
+        choices = [f"{index} {label}" for index, label in enumerate(labels, 1)]
     else:
         labels = scenario.get("reflection_choices", {})
-        choices = " ".join(
-            f"{code} {str(item.get('label', 'Why?'))[:24]}" for code, item in labels.items()
-        )
-    prompt = "Kwa nini?" if language == "sw" else "Why did this happen?"
+        choices = [f"{code} {str(item.get('label', 'Why?'))[:24]}" for code, item in labels.items()]
+    prompt = "Kwa nini?" if language == "sw" else "Why?"
     menu = "0 Menyu" if language == "sw" else "0 Menu"
-    return f"{prompt} {choices} {menu}"[:156]
+    return "\n".join([prompt, *choices, menu])[:156]
 
 
 def _hint_text(scenario: dict[str, Any], language: str, level: int) -> str:
@@ -450,10 +450,19 @@ def process_mobile_sms(
         )
     if command in {"HELP", "MSAADA", "?"}:
         if language == "sw":
-            return "MtaaLab: JIUNGE code, MICHEZO, CHEZA 1, ENDELEA, MAENDELEO, ANZA UJUMBE, ACHA."
-        return "MtaaLab: JOIN code, GAMES, PLAY n, CONTINUE, STATUS, OPT IN, STOP."
+            return (
+                "Amri za MtaaLab\nJIUNGE <code>: unganisha\nMICHEZO: orodha\n"
+                "CHEZA <n>: anza\nENDELEA: endelea\nANZA UJUMBE: vikumbusho\nACHA: simamisha"
+            )
+        return (
+            "MtaaLab commands\nJOIN <code>: link phone\nGAMES: list games\n"
+            "PLAY <n>: start\nCONTINUE: resume\nOPT IN: reminders\nSTOP: reminders off"
+        )
     if command.startswith(("JOIN ", "JIUNGE ")):
-        code = command.split(maxsplit=1)[1]
+        # A learner may paste JOIN and follow-up commands into one multiline SMS.
+        # Redeem only the one-time code token; later commands are not run here.
+        parts = command.split(maxsplit=2)
+        code = parts[1]
         redeem = getattr(store, "redeem_join_code", None)
         student = redeem(code, ref) if redeem else None
         if student is None:
@@ -464,9 +473,11 @@ def process_mobile_sms(
             if setter:
                 setter(ref, language)
         return (
-            "Namba imeunganishwa. Tuma MICHEZO kuchagua. Tuma ANZA UJUMBE kwa vikumbusho."
+            "Namba imeunganishwa.\nTuma MICHEZO kuchagua.\nKisha tuma CHEZA n.\n"
+            "ANZA UJUMBE: vikumbusho."
             if language == "sw"
-            else "Phone linked. Text GAMES to choose. Reply OPT IN for optional reminders."
+            else "Phone linked.\nNext: send GAMES.\nThen: send PLAY n.\n"
+            "OPT IN enables reminders."
         )
     student_id = _student(store, phone_number, ref)
     if student_id is None:
@@ -913,7 +924,7 @@ def process_mobile_ussd(
             elif scenario.get("reflection_choices"):
                 state_data["screen"] = "reflection"
                 state_data["reflection_turn"] = int(updated.get("current_turn", 0))
-                response = "CON " + result_text[:152] + " " + _reflect_prompt(scenario, language)
+                response = "CON " + result_text[:55] + "\n" + _reflect_prompt(scenario, language)
             else:
                 response = "CON " + result_text[:154]
     elif screen == "reflection":

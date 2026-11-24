@@ -63,12 +63,14 @@ def _safe_provider_message_id(value: Any) -> str | None:
 
 
 def _safe_sms_text(message: str) -> str:
-    """Remove common direct identifiers and enforce the single-segment SMS limit."""
+    """Remove direct identifiers, preserve menu line breaks, and enforce one SMS segment."""
     value = re.sub(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", "", message, flags=re.I)
     value = re.sub(r"\b[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\b", "", value, flags=re.I)
     value = re.sub(r"\+?\d[\d\s().-]{6,}\d", "", value)
     value = re.sub(r"\bgrade\s+\w+\b", "", value, flags=re.I)
-    value = " ".join(value.split())
+    normalized = value.replace("\r\n", "\n").replace("\r", "\n")
+    lines = [" ".join(line.split()) for line in normalized.split("\n")]
+    value = "\n".join(line for line in lines if line).strip()
     return value if len(value) <= 160 else f"{value[:157].rstrip()}..."
 
 

@@ -343,10 +343,12 @@ def test_incoming_sms_callback_returns_help_reply_with_url_token(
 
     assert accepted.status_code == 200
     assert accepted.json() == {"status": "accepted"}
+    assert len(sent[0][1]) <= 160
     assert sent == [
         (
             TEST_PHONE,
-            "MtaaLab: JOIN code, GAMES, PLAY n, CONTINUE, STATUS, OPT IN, STOP.",
+            "MtaaLab commands\nJOIN <code>: link phone\nGAMES: list games\n"
+            "PLAY <n>: start\nCONTINUE: resume\nOPT IN: reminders\nSTOP: reminders off",
             {
                 "session_id": None,
                 "recipient_ref": phone_reference(TEST_PHONE),
@@ -386,7 +388,7 @@ def test_sms_can_start_and_play_mtoni_using_the_shared_saved_session(
     assert ussd_list.status_code == ussd.status_code == game_list.status_code == 200
     assert started.status_code == 200
     assert confirmed.status_code == duplicate.status_code == 200
-    assert "Choose game" in sent[0][1]
+    assert "Games:" in sent[0][1]
     assert "Mtoni water resilience 0/6" in sent[1][1]
     assert "Turn saved 1" in sent[2][1]
     assert gateway.store.sessions[sms_session].state["current_turn"] == 1
@@ -479,7 +481,7 @@ def test_cancel_invalid_input_and_exit_are_short_and_safe(
     assert game_list.text.startswith("CON Choose game")
     assert selected.text.startswith("CON Mtoni water resilience 0/6")
     assert action.text.startswith("CON Turn saved 1")
-    assert invalid.text.startswith("CON Why did this happen?")
+    assert invalid.text.startswith("CON Why?\n1 ")
     assert "0 Menu" in invalid.text
     assert exited.text.startswith("CON MtaaLab")
     assert len(gateway.decisions) == 1
@@ -736,6 +738,15 @@ def test_missing_sms_key_returns_not_configured_and_warns_once(
     assert caplog.text.count("Africa's Talking SMS is not configured") == 1
     assert all(item["recipient_ref"] == phone_reference(TEST_PHONE) for item in writes)
     assert TEST_PHONE not in caplog.text
+
+
+def test_sms_sanitizer_preserves_menu_line_breaks_and_collapses_spacing() -> None:
+    message = "Games:\r\n1   Mtoni water\r\n\r\n2 Soko\r\nReply PLAY n"
+
+    safe = sms_service._safe_sms_text(message)
+
+    assert safe == "Games:\n1 Mtoni water\n2 Soko\nReply PLAY n"
+    assert len(safe) <= 160
 
 
 def test_sms_sdk_is_lazy_and_logs_no_key_or_phone(

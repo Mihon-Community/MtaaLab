@@ -198,7 +198,7 @@ def test_join_sms_play_reflection_and_shared_ussd_progress(monkeypatch) -> None:
         gateway=gateway,
     )
     assert "Phone linked" in linked
-    assert "Mtoni" in process_mobile_sms(
+    games = process_mobile_sms(
         phone_number=PHONE,
         message="GAMES",
         provider_message_id="sms-games-1",
@@ -207,7 +207,7 @@ def test_join_sms_play_reflection_and_shared_ussd_progress(monkeypatch) -> None:
         store=store,
         gateway=gateway,
     )
-
+    assert games == "Games:\n1 Mtoni water\n2 Soko\n3 Fever\n4 Chama\nReply PLAY n"
     start = process_mobile_sms(
         phone_number=PHONE,
         message="PLAY 1",
@@ -218,6 +218,8 @@ def test_join_sms_play_reflection_and_shared_ussd_progress(monkeypatch) -> None:
         gateway=gateway,
     )
     assert "Mtoni" in start
+    assert "\n1 Repair pipe\n2 Save water" in start
+    assert len(start) <= 160
     decision = process_mobile_sms(
         phone_number=PHONE,
         message="1",
@@ -264,6 +266,30 @@ def test_join_sms_play_reflection_and_shared_ussd_progress(monkeypatch) -> None:
     assert resumed.startswith("CON Mtoni water resilience 1/6")
 
 
+def test_join_sms_with_followup_lines_redeems_only_the_code_and_guides_next_step(monkeypatch) -> None:
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "phone_hmac_secret", HMAC_KEY)
+    store = FakeMobileStore()
+    gateway = FakeMobileGateway(store)
+
+    response = process_mobile_sms(
+        phone_number=PHONE,
+        message="JOIN ABCDEF2345\nGAMES PLAY 1",
+        provider_message_id="sms-join-multiline",
+        received_at=None,
+        link_id=None,
+        store=store,
+        gateway=gateway,
+    )
+
+    assert "Phone linked" in response
+    assert "Next: send GAMES" in response
+    assert "Then: send PLAY n" in response
+    assert store.link is not None
+    assert store.sessions == {}
+
+
 def test_ussd_shows_games_first_and_each_number_opens_its_matching_game(monkeypatch) -> None:
     from app.config import settings
 
@@ -272,10 +298,10 @@ def test_ussd_shows_games_first_and_each_number_opens_its_matching_game(monkeypa
     store.link = SimpleNamespace(preferred_language="en", student_id=store.student_id)
     gateway = FakeMobileGateway(store)
     expected = [
-        "Mtoni water resilience 0/6. Water 60 Budget 100",
-        "Mama Mboga Market 0/6. Cash 100 Stock 10",
-        "Mtoni Fever Response 0/6. Budget 100 Water 60",
-        "Chama Trust Circle 0/6. Pool 100 Reserve 20",
+        "Mtoni water resilience 0/6\nWater 60 Budget 100\nChoose:",
+        "Mama Mboga Market 0/6\nCash 100 Stock 10\nChoose:",
+        "Mtoni Fever Response 0/6\nBudget 100 Water 60\nChoose:",
+        "Chama Trust Circle 0/6\nPool 100 Reserve 20\nChoose:",
     ]
 
     for number, game_screen in enumerate(expected, start=1):
@@ -296,6 +322,7 @@ def test_ussd_shows_games_first_and_each_number_opens_its_matching_game(monkeypa
             callback.model_copy(update={"text": str(number)}), store=store, gateway=gateway
         )
         assert selected.startswith(f"CON {game_screen}")
+        assert len(selected) <= 160
 
 
 def test_legacy_ussd_session_reopens_on_game_list_instead_of_mtoni_turn_menu(monkeypatch) -> None:
