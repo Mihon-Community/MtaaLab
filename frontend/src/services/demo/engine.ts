@@ -28,7 +28,12 @@ export interface TurnResult {
   accepted: true;
   action: DecisionRequest;
   state: SimulationState;
-  events: { event_type: string; turn_number: number; payload: Record<string, unknown>; engine_version: string }[];
+  events: {
+    event_type: string;
+    turn_number: number;
+    payload: Record<string, unknown>;
+    engine_version: string;
+  }[];
   water_accounting: {
     opening_reservoir: number;
     inflow: number;
@@ -38,6 +43,29 @@ export interface TurnResult {
     overflow: number;
   };
   idempotent_replay: boolean;
+}
+
+/** Mutable private copy of the canonical state used during one calculation. */
+interface DraftState {
+  leakage: number;
+  demand_by_sector: Record<Sector, number>;
+  service_levels: Record<Sector, number>;
+  unmet_demand_by_sector: Record<Sector, number>;
+  allocation_policy: string;
+  reservoir_capacity: number;
+  budget_remaining: number;
+  used_actions: string[];
+  pending_effects: ScheduledEffectDraft[];
+  [key: string]: unknown;
+}
+
+interface ScheduledEffectDraft {
+  action_type?: string;
+  apply_turn: number;
+  effect_type?: string;
+  sector: Sector;
+  reduction_ratio: number;
+  [key: string]: unknown;
 }
 
 function isFiniteNumber(value: unknown): value is number {
@@ -203,7 +231,7 @@ function validateAction(
 }
 
 function applyEffect(
-  draft: Record<string, any>,
+  draft: DraftState,
   effect: Record<string, unknown>,
   parameters: Record<string, unknown>,
 ): void {
@@ -235,12 +263,9 @@ function applyEffect(
   throw new EngineValidationError("unsupported configured action effect");
 }
 
-function applyDueEffects(
-  draft: Record<string, any>,
-  turnNumber: number,
-): void {
-  const pending: Record<string, unknown>[] = [];
-  for (const effect of draft.pending_effects as Record<string, unknown>[]) {
+function applyDueEffects(draft: DraftState, turnNumber: number): void {
+  const pending: ScheduledEffectDraft[] = [];
+  for (const effect of draft.pending_effects) {
     if (Number(effect.apply_turn) <= turnNumber) {
       const sector = String(effect.sector) as Sector;
       const ratio = Number(effect.reduction_ratio);
@@ -372,7 +397,7 @@ export function calculateNextState(
   }
   const inflow = Number(scenario.inflow_schedule[nextTurn - 1]);
 
-  const draft: Record<string, any> = {
+  const draft: DraftState = {
     ...state,
     demand_by_sector: { ...state.demand_by_sector },
     service_levels: { ...state.service_levels },

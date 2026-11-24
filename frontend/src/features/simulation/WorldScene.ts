@@ -1,13 +1,22 @@
 import Phaser from "phaser";
 import { WORLD_LOCATIONS, type LocationId } from "./worldLocations";
+import type { SimulationState } from "../../types/api";
 
 export class WorldScene extends Phaser.Scene {
   private readonly onSelect: (location: LocationId) => void;
   private readonly markers = new Map<LocationId, Phaser.GameObjects.Arc>();
+  private dynamicLayer: Phaser.GameObjects.Container | null = null;
+  private currentState: SimulationState | null = null;
 
   constructor(onSelect: (location: LocationId) => void) {
     super({ key: "MtoniWorld" });
     this.onSelect = onSelect;
+  }
+
+  /** Redraw the confirmed-state overlay; React owns when this is called. */
+  setState(state: SimulationState | null) {
+    this.currentState = state;
+    this.renderDynamicOverlay();
   }
 
   create() {
@@ -245,4 +254,130 @@ export class WorldScene extends Phaser.Scene {
     }
     this.onSelect(locationId);
   }
+
+  /**
+   * Draw the confirmed-state overlay: service share per sector, reservoir
+   * level bar, and network leakage. Colour is always paired with a text value
+   * so no information is carried by colour alone.
+   */
+  private renderDynamicOverlay() {
+    this.dynamicLayer?.destroy(true);
+    this.dynamicLayer = null;
+    const state = this.currentState;
+    if (!state) return;
+
+    const layer = this.add.container(0, 0);
+    this.dynamicLayer = layer;
+
+    for (const location of WORLD_LOCATIONS) {
+      if (!location.sector) continue;
+      const service = clamp(
+        state.service_levels[location.sector] ?? 0,
+        0,
+        1,
+      );
+      const marker = this.markers.get(location.id);
+      marker?.setFillStyle(serviceColor(service), 0.96);
+      layer.add(
+        this.add
+          .text(location.x, location.y + 58, `${Math.round(service * 100)}%`, {
+            color: "#26463d",
+            backgroundColor: "#fffefa",
+            fontFamily: "Arial, sans-serif",
+            fontSize: "11px",
+            fontStyle: "bold",
+            padding: { x: 4, y: 2 },
+          })
+          .setOrigin(0.5),
+      );
+    }
+
+    const reservoir = WORLD_LOCATIONS.find(
+      (location) => location.id === "reservoir",
+    );
+    if (reservoir) {
+      const ratio = clamp(
+        state.reservoir_level / Math.max(state.reservoir_capacity, 1),
+        0,
+        1,
+      );
+      const barWidth = 70;
+      layer.add(
+        this.add
+          .rectangle(
+            reservoir.x - barWidth / 2,
+            reservoir.y + 54,
+            barWidth,
+            6,
+            0xdce5dc,
+          )
+          .setOrigin(0, 0.5),
+      );
+      layer.add(
+        this.add
+          .rectangle(
+            reservoir.x - barWidth / 2,
+            reservoir.y + 54,
+            Math.max(2, barWidth * ratio),
+            6,
+            0x327f9b,
+          )
+          .setOrigin(0, 0.5),
+      );
+      layer.add(
+        this.add
+          .text(
+            reservoir.x,
+            reservoir.y + 70,
+            `${round(state.reservoir_level)} / ${round(state.reservoir_capacity)}`,
+            overlayTextStyle(),
+          )
+          .setOrigin(0.5),
+      );
+    }
+
+    const pipe = WORLD_LOCATIONS.find(
+      (location) => location.id === "main-pipe",
+    );
+    if (pipe) {
+      layer.add(
+        this.add
+          .text(
+            pipe.x,
+            pipe.y + 58,
+            `leak ${round(state.leakage)} units`,
+            overlayTextStyle(),
+          )
+          .setOrigin(0.5),
+      );
+    }
+  }
+}
+
+function overlayTextStyle(): Phaser.Types.GameObjects.Text.TextStyle {
+  return {
+    color: "#26463d",
+    backgroundColor: "#fffefa",
+    fontFamily: "Arial, sans-serif",
+    fontSize: "11px",
+    fontStyle: "bold",
+    padding: { x: 4, y: 2 },
+  };
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+function round(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+/** Green at full service, rust at none; always paired with a percentage label. */
+function serviceColor(service: number): number {
+  const from = { r: 0xb9, g: 0x5e, b: 0x3e };
+  const to = { r: 0x6f, g: 0x9a, b: 0x55 };
+  const mix = (start: number, end: number) =>
+    Math.round(start + (end - start) * service);
+  return (mix(from.r, to.r) << 16) | (mix(from.g, to.g) << 8) | mix(from.b, to.b);
 }

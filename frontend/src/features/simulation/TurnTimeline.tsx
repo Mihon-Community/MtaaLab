@@ -50,12 +50,19 @@ export function TurnTimeline({
       )}
 
       <ol className="timeline-list">
-        {entries.map((entry) => {
+        {entries.map((entry, index) => {
           const actionLabel = entry.action
             ? (mission.action_catalogue.find(
                 (action) => action.action_type === entry.action?.action_type,
               )?.label ?? formatLabel(entry.action.action_type))
             : "Mission started";
+          const previous = index > 0 ? entries[index - 1] : null;
+          const reservoirDelta = previous
+            ? roundDelta(entry.state.reservoir_level - previous.state.reservoir_level)
+            : null;
+          const budgetDelta = previous
+            ? roundDelta(entry.state.budget_remaining - previous.state.budget_remaining)
+            : null;
           return (
             <li className="timeline-entry" key={entry.turn}>
               <span className="timeline-marker" aria-hidden="true" />
@@ -64,6 +71,24 @@ export function TurnTimeline({
                 <span>{entry.ai_feedback_status ?? "Saved"}</span>
               </div>
               <p>{actionLabel}</p>
+              {previous && (
+                <p className="timeline-delta">
+                  <span>
+                    Reservoir{" "}
+                    {reservoirDelta !== null && reservoirDelta > 0
+                      ? `+${reservoirDelta}`
+                      : reservoirDelta}{" "}
+                    units
+                  </span>
+                  <span>
+                    Budget{" "}
+                    {budgetDelta !== null && budgetDelta > 0
+                      ? `+${budgetDelta}`
+                      : budgetDelta}{" "}
+                    credits
+                  </span>
+                </p>
+              )}
               {entry.events.map((event, index) => {
                 const message = event.payload.message;
                 return (
@@ -96,4 +121,8 @@ function formatLabel(value: string) {
   return value
     .replaceAll("_", " ")
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function roundDelta(value: number): number {
+  return Math.round(value * 100) / 100;
 }

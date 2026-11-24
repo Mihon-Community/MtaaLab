@@ -19,11 +19,13 @@ import type {
   HistoryEntry,
   MissionDetail,
   SessionStateResponse,
+  WaterAccounting,
 } from "../../types/api";
 import { EventPanel } from "./EventPanel";
 import { InspectionPanel } from "./InspectionPanel";
 import { ResourceHUD } from "./ResourceHUD";
 import { DecisionPanel } from "./DecisionPanel";
+import { StakeholderPanel } from "./StakeholderPanel";
 import { TurnTimeline } from "./TurnTimeline";
 import { WORLD_LOCATIONS, type LocationId } from "./worldLocations";
 import { WorldCanvas } from "./WorldCanvas";
@@ -53,6 +55,9 @@ export function SimulationPage() {
   const [lastEvents, setLastEvents] = useState<NonNullable<
     HistoryEntry["events"]
   > | null>(null);
+  const [lastAccounting, setLastAccounting] = useState<
+    WaterAccounting | null
+  >(null);
   const [stateAttempt, setStateAttempt] = useState(0);
   const [missionAttempt, setMissionAttempt] = useState(0);
   const [historyAttempt, setHistoryAttempt] = useState(0);
@@ -65,6 +70,7 @@ export function SimulationPage() {
   useEffect(() => {
     setHistory([]);
     setLastEvents(null);
+    setLastAccounting(null);
     setFeedbackStatus(null);
     setReflection(null);
   }, [sessionId]);
@@ -238,6 +244,7 @@ export function SimulationPage() {
       setSession(confirmed);
       saveConfirmedSession(confirmed);
       setLastEvents(result.events);
+      setLastAccounting(result.water_accounting);
       setFeedbackStatus(result.ai_feedback_status);
       setReflection(null);
       pendingRequest.current = null;
@@ -473,7 +480,7 @@ export function SimulationPage() {
               <span aria-hidden="true" /> Connected water system
             </span>
           </div>
-          <WorldCanvas onSelect={setSelectedLocation} />
+          <WorldCanvas onSelect={setSelectedLocation} state={state} />
           <div
             className="world-location-list"
             role="group"
@@ -512,6 +519,13 @@ export function SimulationPage() {
         onSubmit={(decision) => void handleSubmitDecision(decision)}
       />
 
+      <StakeholderPanel
+        state={state}
+        events={events}
+        waterUnit={waterUnit}
+        aiFeedbackStatus={aiStatus}
+      />
+
       <div className="simulation-detail-grid">
         <EventPanel
           events={events}
@@ -521,6 +535,8 @@ export function SimulationPage() {
           isLoadingReflection={reflectionLoading}
           reflectionError={reflectionError}
           onRequestReflection={() => void handleRequestReflection()}
+          accounting={lastAccounting}
+          waterUnit={waterUnit}
         />
         <TurnTimeline
           entries={history}

@@ -2275,3 +2275,193 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Local demo disclosure banner. */
+.demo-banner {
+  margin: 1rem 0 0;
+  padding: 0.7rem 0.95rem;
+  border: 1px solid #c9d8b4;
+  border-radius: 0.65rem;
+  background: #f2f7e4;
+  color: #3f5228;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.demo-banner code {
+  padding: 0.1rem 0.3rem;
+  border-radius: 0.3rem;
+  background: #e4eecb;
+  font-size: 0.76rem;
+}
+
+[data-contrast="high"] .demo-banner {
+  border-color: #000000;
+  background: #ffffff;
+  color: #000000;
+}
+
+/* Community voices. */
+.voice-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.85rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.voice-card {
+  padding: 0.95rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  background: #f8faf4;
+}
+
+.voice-card-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.voice-card h3 {
+  margin: 0;
+  font-size: 1.02rem;
+}
+
+.voice-service {
+  color: var(--green-dark);
+  font-size: 0.78rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.voice-perspective {
+  margin: 0.45rem 0 0.7rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
+.voice-facts {
+  display: flex;
+  gap: 1rem;
+  margin: 0;
+}
+
+.voice-facts dt {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.voice-facts dd {
+  margin: 0.1rem 0 0;
+  color: var(--ink);
+  font-size: 0.85rem;
+  font-weight: 750;
+}
+
+.voice-event {
+  margin: 0.7rem 0 0;
+  padding-top: 0.6rem;
+  border-top: 1px dashed #cfdccb;
+  color: #445b55;
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+/* Confirmed water accounting ledger. */
+.accounting-values {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin: 1rem 0 0;
+}
+
+.accounting-values div {
+  padding: 0.65rem;
+  border-radius: 0.6rem;
+  background: #f3f5ed;
+}
+
+.accounting-values dt {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.accounting-values dd {
+  margin: 0.2rem 0 0;
+  color: var(--ink);
+  font-size: 0.95rem;
+  font-weight: 750;
+}
+
+.accounting-subheading {
+  margin: 1.1rem 0 0.5rem;
+  font-size: 1rem;
+}
+
+.accounting-withdrawals {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.accounting-withdrawals li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 0.5rem;
+  background: #f8faf4;
+  font-size: 0.82rem;
+}
+
+.accounting-invariant {
+  margin: 1rem 0 0;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.6;
+}
+
+.timeline-delta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.timeline-delta span {
+  padding: 0.15rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #f8faf4;
+}
+
+@media (max-width: 960px) {
+  .voice-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .accounting-values {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .voice-list {
+    grid-template-columns: 1fr;
+  }
+
+  .demo-banner {
+    font-size: 0.74rem;
+  }
+}

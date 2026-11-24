@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import type Phaser from "phaser";
 import type { LocationId } from "./worldLocations";
+import type { SimulationState } from "../../types/api";
 
 interface WorldCanvasProps {
   onSelect: (location: LocationId) => void;
+  state?: SimulationState | null;
 }
 
-export function WorldCanvas({ onSelect }: WorldCanvasProps) {
+export function WorldCanvas({ onSelect, state }: WorldCanvasProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const onSelectRef = useRef(onSelect);
+  const sceneRef = useRef<Phaser.Scene | null>(null);
   const [sceneError, setSceneError] = useState(false);
   onSelectRef.current = onSelect;
 
@@ -19,6 +22,10 @@ export function WorldCanvas({ onSelect }: WorldCanvasProps) {
       .then(([phaserModule, { WorldScene }]) => {
         if (!active || !mountRef.current) return;
         const Phaser = phaserModule.default;
+        const scene = new WorldScene((location) =>
+          onSelectRef.current(location),
+        );
+        sceneRef.current = scene;
         game = new Phaser.Game({
           type: Phaser.CANVAS,
           parent: mountRef.current,
@@ -29,7 +36,7 @@ export function WorldCanvas({ onSelect }: WorldCanvasProps) {
             width: 860,
             height: 440,
           },
-          scene: new WorldScene((location) => onSelectRef.current(location)),
+          scene,
           render: {
             antialias: true,
             pixelArt: false,
@@ -47,9 +54,17 @@ export function WorldCanvas({ onSelect }: WorldCanvasProps) {
 
     return () => {
       active = false;
+      sceneRef.current = null;
       game?.destroy(true);
     };
   }, []);
+
+  useEffect(() => {
+    const scene = sceneRef.current as
+      | (Phaser.Scene & { setState?: (next: SimulationState | null) => void })
+      | null;
+    scene?.setState?.(state ?? null);
+  }, [state]);
 
   return (
     <div className="world-canvas-frame">
