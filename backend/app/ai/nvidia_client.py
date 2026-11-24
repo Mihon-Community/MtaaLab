@@ -217,7 +217,7 @@ def redact_direct_pii(value: Any) -> Any:
         text = re.sub(r"(?<!\w)(?:\+?\d[\d ()-]{7,}\d)(?!\w)", "[redacted]", text)
         text = re.sub(
             (
-                r"(?i)\b(?:my name is|student name|learner name|name)"
+                r"(?i:\b(?:my name is|student name|learner name|name\s*[:=]))"
                 r"\s*[:=]?\s*[A-Z][\w'-]+(?:\s+[A-Z][\w'-]+){0,2}"
             ),
             "[redacted]",

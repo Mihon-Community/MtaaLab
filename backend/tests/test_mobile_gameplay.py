@@ -5,6 +5,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
+import pytest
+
 from app.api.schemas import USSDCallbackRequest
 from app.integrations.africas_talking.menu_state import phone_reference
 from app.integrations.africas_talking.mobile_gameplay import (
@@ -216,7 +218,10 @@ def test_join_sms_play_reflection_and_shared_ussd_progress(monkeypatch) -> None:
         store=store,
         gateway=gateway,
     )
-    assert games == "Games: 1 Mtoni water; 2 Soko; 3 Fever; 4 Chama. Reply PLAY n to choose."
+    assert games == (
+        "Games: 1 Mtoni (water); 2 Soko (market); 3 Fever (prevention); "
+        "4 Chama (savings). Text a title for how-to; PLAY n starts."
+    )
     start = process_mobile_sms(
         phone_number=PHONE,
         message="PLAY 1",
@@ -394,7 +399,10 @@ def test_sms_uses_model_reply_for_free_form_game_questions(monkeypatch) -> None:
         return SimpleNamespace(
             intent="reply",
             selection_index=None,
-            reply_text="Soko is a small market game about orders, prices and spoilage.",
+            reply_text=(
+                "Run a market stall for six days: choose each day's stock and price plan, then "
+                "compare sales, cash, leftovers and spoilage. Text PLAY 2 to start."
+            ),
         )
 
     monkeypatch.setattr(
@@ -410,10 +418,141 @@ def test_sms_uses_model_reply_for_free_form_game_questions(monkeypatch) -> None:
         gateway=gateway,
     )
 
-    assert response == "Soko is a small market game about orders, prices and spoilage."
+    assert response.startswith("Run a market stall for six days")
+    assert "stock and price plan" in response
+    assert "Text PLAY 2 to start." in response
+    assert len(response) <= 160
     assert any(item["title"] == "Mama Mboga Market" for item in observed["game_information"])
-    assert "Text GAMES to list assigned games." in observed["playing_guide"]
+    assert any("Soko" in item["aliases"] for item in observed["game_information"])
+    assert "Text a game title to learn what you do" in observed["playing_guide"]
     assert store.sessions == {}
+
+
+def test_lobby_greeting_that_omits_the_games_gets_a_welcome_catalog(monkeypatch) -> None:
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "phone_hmac_secret", HMAC_KEY)
+    store = FakeMobileStore()
+    store.link = SimpleNamespace(preferred_language="en", student_id=store.student_id)
+    gateway = FakeMobileGateway(store)
+
+    def shallow_greeting(**_kwargs: object) -> SimpleNamespace:
+        return SimpleNamespace(
+            intent="reply",
+            selection_index=None,
+            reply_text="Hello! Which game would you like to explore?",
+        )
+
+    monkeypatch.setattr(
+        "app.integrations.africas_talking.mobile_gameplay.interpret_sms_intent",
+        shallow_greeting,
+    )
+    response = process_mobile_sms(
+        phone_number=PHONE,
+        message="hello",
+        provider_message_id="sms-lobby-hello",
+        received_at=None,
+        link_id=None,
+        store=store,
+        gateway=gateway,
+    )
+
+    assert response.startswith("Hi!")
+    assert "Mtoni: manage shared water" in response
+    assert "Soko: run a market stall" in response
+    assert "Fever: plan prevention" in response
+    assert "Chama: manage savings" in response
+    assert "PLAY n starts" in response
+    assert len(response) <= 160
+    assert store.sessions == {}
+
+
+@pytest.mark.parametrize(
+    ("message", "expected_parts"),
+    [
+        ("mtoni", ("community water", "repairs", "PLAY 1")),
+        ("soko", ("market stall", "stock and price plan", "PLAY 2")),
+        ("What is Soko about?", ("market stall", "stock and price plan", "PLAY 2")),
+        ("fever", ("clinic readiness", "No illness is simulated", "PLAY 3")),
+        ("chama", ("fictional savings group", "No real money", "PLAY 4")),
+    ],
+)
+def test_game_explanation_gets_a_real_how_to_even_if_model_reply_is_shallow(
+    monkeypatch, message: str, expected_parts: tuple[str, ...]
+) -> None:
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "phone_hmac_secret", HMAC_KEY)
+    store = FakeMobileStore()
+    store.link = SimpleNamespace(preferred_language="en", student_id=store.student_id)
+    gateway = FakeMobileGateway(store)
+
+    def shallow_model_reply(**_kwargs: object) -> SimpleNamespace:
+        return SimpleNamespace(
+            intent="reply",
+            selection_index=None,
+            reply_text="That is a game. Type PLAY to start.",
+        )
+
+    monkeypatch.setattr(
+        "app.integrations.africas_talking.mobile_gameplay.interpret_sms_intent",
+        shallow_model_reply,
+    )
+    response = process_mobile_sms(
+        phone_number=PHONE,
+        message=message,
+        provider_message_id=f"sms-howto-{message}",
+        received_at=None,
+        link_id=None,
+        store=store,
+        gateway=gateway,
+    )
+
+    for part in expected_parts:
+        assert part in response
+    assert len(response) <= 160
+    assert store.sessions == {}
+
+
+def test_play_game_by_name_switches_from_an_active_turn(monkeypatch) -> None:
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "phone_hmac_secret", HMAC_KEY)
+    store = FakeMobileStore()
+    store.link = SimpleNamespace(preferred_language="en", student_id=store.student_id)
+    gateway = FakeMobileGateway(store)
+    process_mobile_sms(
+        phone_number=PHONE,
+        message="PLAY 1",
+        provider_message_id="sms-switch-start-mtoni",
+        received_at=None,
+        link_id=None,
+        store=store,
+        gateway=gateway,
+    )
+
+    def unexpected_ai_call(**_kwargs: object) -> None:
+        raise AssertionError("explicit PLAY <name> should be resolved before NVIDIA")
+
+    monkeypatch.setattr(
+        "app.integrations.africas_talking.mobile_gameplay.interpret_sms_intent",
+        unexpected_ai_call,
+    )
+    response = process_mobile_sms(
+        phone_number=PHONE,
+        message="play fever",
+        provider_message_id="sms-switch-to-fever",
+        received_at=None,
+        link_id=None,
+        store=store,
+        gateway=gateway,
+    )
+
+    assert response.startswith("Fever, turn 1/6.")
+    assert "Choose:" in response
+    assert "didn't catch" not in response
+    assert len(store.sessions) == 2
+    assert any(session.mission_id == store.missions[2].id for session in store.sessions.values())
 
 
 def test_sms_natural_language_maps_to_one_valid_game_choice(monkeypatch) -> None:
