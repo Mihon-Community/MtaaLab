@@ -209,7 +209,14 @@ async def africastalking_sms_status_callback(
         request,
         SMSStatusCallbackRequest,
         required_fields={"id", "status"},
-        allowed_fields={"id", "status", "phoneNumber", "networkCode", "failureReason"},
+        allowed_fields={
+            "id",
+            "status",
+            "phoneNumber",
+            "networkCode",
+            "failureReason",
+            "retryCount",
+        },
     )
     message_ref = sha256(callback.provider_message_id.encode("utf-8")).hexdigest()
     recipient_ref = phone_reference(callback.phone_number) if callback.phone_number else message_ref

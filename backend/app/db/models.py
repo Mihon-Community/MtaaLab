@@ -105,6 +105,7 @@ class Mission(Base):
     __tablename__ = "missions"
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    slug: Mapped[str | None] = mapped_column(Text, unique=True)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     subject: Mapped[str] = mapped_column(Text, nullable=False)
@@ -159,6 +160,63 @@ class SandboxPhoneMapping(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class MobileJoinCode(Base):
+    __tablename__ = "mobile_join_codes"
+    __table_args__ = (
+        UniqueConstraint("code_digest", name="mobile_join_codes_code_digest_key"),
+        Index("mobile_join_codes_class_expiry_idx", "class_id", "expires_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    class_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("public.classes.id", ondelete="CASCADE"), nullable=False
+    )
+    student_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("public.profiles.id", ondelete="CASCADE"), nullable=False
+    )
+    code_digest: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("public.profiles.id", ondelete="RESTRICT"), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    redeemed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class LearnerChannelLink(Base):
+    __tablename__ = "learner_channel_links"
+    __table_args__ = (
+        CheckConstraint(
+            "phone_ref ~ '^[a-f0-9]{64}$'", name="learner_channel_links_phone_ref_check"
+        ),
+        CheckConstraint(
+            "consent_status in ('linked','opted_in','stopped')",
+            name="learner_channel_links_consent_status_check",
+        ),
+        Index("learner_channel_links_student_idx", "student_id"),
+    )
+
+    phone_ref: Mapped[str] = mapped_column(Text, primary_key=True)
+    student_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("public.profiles.id", ondelete="CASCADE"), nullable=False
+    )
+    class_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("public.classes.id", ondelete="CASCADE"), nullable=False
+    )
+    encrypted_phone: Mapped[str | None] = mapped_column(Text)
+    preferred_language: Mapped[str] = mapped_column(Text, nullable=False, default="en")
+    consent_status: Mapped[str] = mapped_column(Text, nullable=False, default="linked")
+    consent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    opted_out_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    nudge_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    nudge_period: Mapped[str | None] = mapped_column(Text)
+    nudge_last_session_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("public.simulation_sessions.id", ondelete="SET NULL")
+    )
+    nudge_last_turn: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class ScenarioVersion(Base):
     __tablename__ = "scenario_versions"
     __table_args__ = (UniqueConstraint("mission_id", "version"),)
@@ -190,6 +248,7 @@ class SimulationSession(Base):
     status: Mapped[str] = mapped_column(String, nullable=False, default="active")
     current_turn: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     current_state: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    event_seed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     parent_session_id: Mapped[UUID | None] = mapped_column(
@@ -294,6 +353,27 @@ class LearningAssessment(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class SimulationReflection(Base):
+    __tablename__ = "simulation_reflections"
+    __table_args__ = (
+        UniqueConstraint(
+            "session_id", "turn_number", name="simulation_reflections_session_turn_key"
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    session_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("public.simulation_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    turn_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    answer_code: Mapped[str] = mapped_column(Text, nullable=False)
+    misconception_tag: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class MobileSession(Base):
     __tablename__ = "mobile_sessions"
     __table_args__ = (
@@ -306,10 +386,10 @@ class MobileSession(Base):
     )
     provider_session_id: Mapped[str] = mapped_column(Text, nullable=False)
     phone_ref: Mapped[str] = mapped_column(Text, nullable=False)
-    session_id: Mapped[UUID] = mapped_column(
+    session_id: Mapped[UUID | None] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("public.simulation_sessions.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
     current_menu: Mapped[str] = mapped_column(Text, nullable=False)
     state: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)

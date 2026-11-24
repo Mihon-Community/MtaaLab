@@ -34,3 +34,11 @@ class SimulationGateway(Protocol):
         idempotency_key: str | None = None,
         label: str | None = None,
     ) -> dict[str, Any]: ...
+
+    def record_reflection(
+        self, session_id: UUID, user_id: UUID, turn_number: int, answer_code: str
+    ) -> dict[str, Any]: ...
+
+    def get_reflection(
+        self, session_id: UUID, user_id: UUID, turn_number: int
+    ) -> dict[str, Any] | None: ...

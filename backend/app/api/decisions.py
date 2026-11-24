@@ -60,15 +60,17 @@ def submit_decision(
     )
     try:
         result = gateway.submit_decision(session_id, user.id, action, idempotency_key)
-        ai_status: str = "pending"
+        ai_status: str = "not_requested" if isinstance(result.state, dict) else "pending"
         if result.idempotent_replay:
             history = gateway.history(session_id, user.id, limit=100, offset=0)
             stored_turn = next(
                 (item for item in history["entries"] if item["turn"] == result.turn),
                 None,
             )
-            ai_status = (stored_turn or {}).get("ai_feedback_status") or "pending"
-        else:
+            ai_status = (stored_turn or {}).get("ai_feedback_status") or (
+                "not_requested" if isinstance(result.state, dict) else "pending"
+            )
+        elif not isinstance(result.state, dict):
             actors = [actor["actor_id"] for actor in load_scenario()["approved_actors"]]
             actor_id = actors[(result.turn - 1) % len(actors)]
             background_tasks.add_task(

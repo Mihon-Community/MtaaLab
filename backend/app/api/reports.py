@@ -59,21 +59,14 @@ def get_report(
         db = getattr(gateway, "db", None)
         assessment_row = get_latest_assessment(db, session_id) if db is not None else None
         state = state_record["state"]
+        state_data = state.model_dump(mode="json") if hasattr(state, "model_dump") else dict(state)
         entries = timeline["entries"]
         return ReportResponse(
             session_id=session_id,
             mission_id=state_record["mission_id"],
             status=state_record["status"],
             current_turn=state_record["turn"],
-            outcomes={
-                "reservoir_level": state.reservoir_level,
-                "reservoir_capacity": state.reservoir_capacity,
-                "budget_remaining": state.budget_remaining,
-                "service_levels": state.service_levels,
-                "unmet_demand_by_sector": state.unmet_demand_by_sector,
-                "crop_health": state.crop_health,
-                "wellbeing": state.wellbeing,
-            },
+            outcomes=state_data,
             decisions=[entry["action"] for entry in entries if entry.get("action")],
             events=[event for entry in entries for event in entry.get("events", [])],
             assessment=assessment_report(assessment_row),
@@ -113,6 +106,10 @@ def create_session_debrief(
                 report_value = assessment_report(existing) or {}
                 reasoning_assessment = report_value.get("feedback")
                 reasoning_status = report_value.get("ai_feedback_status")
+            elif session_state.get("scenario_id", "mtoni") != "mtoni":
+                # The current evaluator is calibrated only for the Mtoni water scenario.
+                # Do not label explanations for other games with an unrelated rubric.
+                reasoning_status = "ai_unavailable"
             else:
                 reasoning_result = evaluate_reasoning(
                     request.student_explanation,
@@ -138,12 +135,26 @@ def create_session_debrief(
                     reasoning_assessment = safe_output.model_dump(mode="json")
                     reasoning_status = reasoning_result.status
 
-        debrief_result = create_debrief(
-            timeline,
-            record_interaction=callback,
-        )
-        debrief = debrief_result.output.model_dump(mode="json")
-        statuses = [debrief_result.status]
+        session_state = gateway.get_state(session_id, user.id)
+        if session_state.get("scenario_id", "mtoni") == "mtoni":
+            debrief_result = create_debrief(timeline, record_interaction=callback)
+            debrief = debrief_result.output.model_dump(mode="json")
+            debrief_source = debrief_result.source
+            statuses = [debrief_result.status]
+        else:
+            debrief = {
+                "summary": (
+                    f"The saved {session_state['scenario_id']} run contains {latest_turn} "
+                    "confirmed turns. Review the decision and event records before replaying."
+                ),
+                "trade_offs": ["Compare the confirmed state before and after each decision."],
+                "replay_suggestion": (
+                    "Replay and choose a different plan to compare the saved outcomes."
+                ),
+                "referenced_facts": [],
+            }
+            debrief_source = "fallback"
+            statuses = ["ai_unavailable"]
         if reasoning_assessment is not None:
             debrief["reasoning_assessment"] = reasoning_assessment
             statuses.append(reasoning_status or "ai_unavailable")
@@ -153,7 +164,7 @@ def create_session_debrief(
         return DebriefResponse(
             session_id=session_id,
             debrief=debrief,
-            source=debrief_result.source,
+            source=debrief_source,
             ai_feedback_status=overall_status,
         )
     except HTTPException:

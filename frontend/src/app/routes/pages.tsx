@@ -8,8 +8,8 @@ import { TeacherPage } from "../../features/teacher-view/TeacherPage";
 export const routePages = [
   {
     path: "/",
-    title: "Mission lobby",
-    description: "Available mission placeholder.",
+    title: "Game lobby",
+    description: "Browse teacher-assigned games.",
     component: LobbyPage,
   },
   {
@@ -20,8 +20,8 @@ export const routePages = [
   },
   {
     path: "/simulation",
-    title: "Simulation",
-    description: "Mtoni simulation placeholder.",
+    title: "Game simulation",
+    description: "Play and review a saved simulation run.",
     component: SimulationPage,
   },
   {
@@ -38,8 +38,8 @@ export const routePages = [
   },
   {
     path: "/teacher",
-    title: "Teacher view",
-    description: "Teacher view placeholder.",
+    title: "Teacher access",
+    description: "Issue one-time feature-phone learner codes.",
     component: TeacherPage,
   },
 ];

@@ -37,3 +37,14 @@ services:
       timeout: 5s
       retries: 5
       start_period: 5s
+
+  mobile-nudges:
+    build:
+      context: ./backend
+    env_file:
+      - ./.env
+    command: ["python", "-m", "scripts.run_nudge_worker"]
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped

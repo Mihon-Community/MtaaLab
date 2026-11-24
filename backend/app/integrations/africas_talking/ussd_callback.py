@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -13,7 +15,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.schemas import USSDCallbackRequest, USSDMenuResponse
-from app.db.models import MobileSession, Profile, SandboxPhoneMapping, SimulationSession
+from app.config import settings
+from app.db.models import (
+    LearnerChannelLink,
+    MobileJoinCode,
+    MobileSession,
+    Profile,
+    SandboxPhoneMapping,
+    ScenarioVersion,
+    SimulationSession,
+)
 from app.db.repositories import (
     DeliveryLogRepository,
     MissionRepository,
@@ -21,8 +32,9 @@ from app.db.repositories import (
     SimulationRepository,
 )
 from app.db.session import get_db_session
+from app.integrations.africas_talking.mobile_privacy import encrypt_phone
 from app.simulation.gateway import SimulationGateway
-from app.simulation.service import load_scenario
+from app.simulation.service import load_scenario, load_versioned_scenario
 from app.simulation.world_state import Action
 
 from .menu_state import (
@@ -35,6 +47,7 @@ from .menu_state import (
     render_menu,
     split_cumulative_text,
 )
+from .mobile_gameplay import _phone_ref, process_mobile_sms, process_mobile_ussd
 from .sms_service import send_mission_sms
 
 logger = logging.getLogger(__name__)
@@ -49,9 +62,23 @@ class WebhookStore(Protocol):
 
     def get_demo_student_id(self, phone_ref: str) -> UUID | None: ...
 
+    def get_linked_student_id(self, phone_ref: str) -> UUID | None: ...
+
+    def get_channel_link(self, phone_ref: str) -> LearnerChannelLink | None: ...
+
+    def set_preferred_language(self, phone_ref: str, language: str) -> None: ...
+
+    def redeem_join_code(self, code: str, phone_ref: str) -> UUID | None: ...
+
+    def set_sms_consent(self, phone_ref: str, phone_number: str, *, opted_in: bool) -> bool: ...
+
+    def get_published_missions(self, student_id: UUID) -> list[Any]: ...
+
+    def get_scenario_for_session(self, session_id: UUID) -> dict[str, Any] | None: ...
+
     def get_mobile(self, provider_session_id: str) -> MobileSession | None: ...
 
-    def get_simulation_session(self, session_id: UUID) -> SimulationSession | None: ...
+    def get_simulation_session(self, session_id: UUID | None) -> SimulationSession | None: ...
 
     def get_active_session(self, student_id: UUID) -> SimulationSession | None: ...
 
@@ -62,7 +89,7 @@ class WebhookStore(Protocol):
         *,
         provider_session_id: str,
         phone_ref: str,
-        session_id: UUID,
+        session_id: UUID | None,
         current_menu: str,
         state: dict[str, Any],
         expires_at: datetime,
@@ -97,16 +124,123 @@ class SQLAlchemyWebhookStore:
             )
         )
 
+    def get_linked_student_id(self, phone_ref: str) -> UUID | None:
+        return self.db.scalar(
+            select(LearnerChannelLink.student_id).where(LearnerChannelLink.phone_ref == phone_ref)
+        )
+
+    def get_channel_link(self, phone_ref: str) -> LearnerChannelLink | None:
+        return self.db.get(LearnerChannelLink, phone_ref)
+
+    def set_preferred_language(self, phone_ref: str, language: str) -> None:
+        link = self.db.get(LearnerChannelLink, phone_ref)
+        if link is not None and language in {"en", "sw"}:
+            link.preferred_language = language
+            self.db.commit()
+
+    def redeem_join_code(self, code: str, phone_ref: str) -> UUID | None:
+        pepper = (settings.mobile_join_code_pepper or "").strip()
+        if len(pepper) < 32:
+            return None
+        digest = hmac.new(
+            pepper.encode(), code.strip().upper().encode("ascii"), hashlib.sha256
+        ).hexdigest()
+        now = datetime.now(UTC)
+        join_code = self.db.scalar(
+            select(MobileJoinCode).where(MobileJoinCode.code_digest == digest).with_for_update()
+        )
+        if join_code is None:
+            return None
+        existing = self.db.get(LearnerChannelLink, phone_ref)
+        if join_code.redeemed_at is not None:
+            if (
+                existing is not None
+                and existing.student_id == join_code.student_id
+                and existing.class_id == join_code.class_id
+            ):
+                return join_code.student_id
+            return None
+        if join_code.expires_at <= now:
+            return None
+        if existing is not None and (
+            existing.student_id != join_code.student_id or existing.class_id != join_code.class_id
+        ):
+            return None
+        if existing is None:
+            self.db.add(
+                LearnerChannelLink(
+                    phone_ref=phone_ref,
+                    student_id=join_code.student_id,
+                    class_id=join_code.class_id,
+                    preferred_language="en",
+                    consent_status="linked",
+                )
+            )
+        join_code.redeemed_at = now
+        self.db.commit()
+        return join_code.student_id
+
+    def set_sms_consent(self, phone_ref: str, phone_number: str, *, opted_in: bool) -> bool:
+        link = self.db.get(LearnerChannelLink, phone_ref)
+        if link is None:
+            return False
+        if opted_in:
+            try:
+                link.encrypted_phone = encrypt_phone(phone_number)
+            except ValueError:
+                return False
+            link.consent_status = "opted_in"
+            link.consent_at = datetime.now(UTC)
+            link.opted_out_at = None
+        else:
+            link.encrypted_phone = None
+            link.consent_status = "stopped"
+            link.consent_at = None
+            link.opted_out_at = datetime.now(UTC)
+        self.db.commit()
+        return True
+
+    def get_published_missions(self, student_id: UUID) -> list[Any]:
+        return MissionRepository(self.db).list_published(student_id)
+
+    def get_scenario_for_session(self, session_id: UUID) -> dict[str, Any] | None:
+        version = self.db.scalar(
+            select(ScenarioVersion)
+            .join(SimulationSession, SimulationSession.mission_version_id == ScenarioVersion.id)
+            .where(SimulationSession.id == session_id)
+        )
+        if version is None:
+            return None
+        try:
+            return load_versioned_scenario(version.rules_version)
+        except (LookupError, ValueError):
+            return None
+
     def get_mobile(self, provider_session_id: str) -> MobileSession | None:
         return MobileSessionRepository(self.db).get_by_provider_session_id(
             provider_session_id, for_update=True
         )
 
-    def get_simulation_session(self, session_id: UUID) -> SimulationSession | None:
-        return self.db.get(SimulationSession, session_id)
+    def get_simulation_session(self, session_id: UUID | None) -> SimulationSession | None:
+        return self.db.get(SimulationSession, session_id) if session_id is not None else None
 
     def get_active_session(self, student_id: UUID) -> SimulationSession | None:
         return SimulationRepository(self.db).get_active_session_for_student(student_id)
+
+    def get_active_session_for_mission(
+        self, student_id: UUID, mission_id: UUID
+    ) -> SimulationSession | None:
+        return self.db.scalar(
+            select(SimulationSession)
+            .join(ScenarioVersion, ScenarioVersion.id == SimulationSession.mission_version_id)
+            .where(
+                SimulationSession.student_id == student_id,
+                ScenarioVersion.mission_id == mission_id,
+                SimulationSession.status == "active",
+            )
+            .order_by(SimulationSession.started_at.desc(), SimulationSession.id.desc())
+            .limit(1)
+        )
 
     def get_mtoni_mission_id(self, student_id: UUID) -> UUID | None:
         missions = MissionRepository(self.db).list_published(student_id)
@@ -118,7 +252,7 @@ class SQLAlchemyWebhookStore:
         *,
         provider_session_id: str,
         phone_ref: str,
-        session_id: UUID,
+        session_id: UUID | None,
         current_menu: str,
         state: dict[str, Any],
         expires_at: datetime,
@@ -208,9 +342,7 @@ def _create_or_resume_session(
         simulation_session = store.get_simulation_session(mobile.session_id)
         if simulation_session is not None and simulation_session.student_id != student_id:
             return None
-    if (simulation_session is None or simulation_session.status != "active") and (
-        session_channel == "ussd"
-    ):
+    if simulation_session is None or simulation_session.status != "active":
         simulation_session = store.get_active_session(student_id)
     if simulation_session is None:
         mission_id = store.get_mtoni_mission_id(student_id)
@@ -249,11 +381,47 @@ def process_ussd_callback(
     if not allowed_phone(callback.phone_number, configured_phones):
         return USSDOutcome(response="END This number is not allowed for the sandbox demo.")
 
-    student_id = store.get_demo_student_id(phone_ref)
-    if student_id is None:
-        return USSDOutcome(response="END This number is not linked to the sandbox demo.")
-
     mobile = store.get_mobile(callback.session_id)
+    modern_ref = _phone_ref(callback.phone_number)
+    linked_lookup = getattr(store, "get_linked_student_id", None)
+    linked_student = linked_lookup(modern_ref) if linked_lookup else None
+    legacy_student = store.get_demo_student_id(phone_ref)
+    last_choice = split_cumulative_text(callback.text)[-1:] or [""]
+    choose_games = (
+        legacy_student is not None
+        and mobile is not None
+        and not (isinstance(mobile.state, dict) and mobile.state.get("mobile_v2"))
+        and mobile.current_menu == "main"
+        and last_choice[0] == "5"
+    )
+    if (
+        session_channel == "ussd"
+        or linked_student is not None
+        or legacy_student is None
+        or (mobile is not None and isinstance(mobile.state, dict) and mobile.state.get("mobile_v2"))
+        or choose_games
+    ):
+        response = process_mobile_ussd(
+            callback,
+            store=store,
+            gateway=gateway,
+            force_start=choose_games,
+            background_tasks=background_tasks,
+        )
+        updated_mobile = store.get_mobile(callback.session_id)
+        updated_state = (
+            updated_mobile.state if updated_mobile is not None else {}
+        )
+        completed = isinstance(updated_state, dict) and updated_state.get("screen") == "completed"
+        return USSDOutcome(
+            response=response,
+            completed=completed,
+            recipient=callback.phone_number if completed else None,
+            phone_ref=modern_ref,
+            session_id=updated_mobile.session_id if updated_mobile is not None else None,
+        )
+
+    student_id = legacy_student
     if mobile is not None and mobile.phone_ref != phone_ref:
         return USSDOutcome(response="END This sandbox session is not available.")
 
@@ -502,10 +670,51 @@ def process_sms_game_message(
 ) -> USSDOutcome:
     """Run one SMS menu choice through the same persistent deterministic game flow."""
     command = " ".join(message.upper().split())
-    help_reply = (
-        "MtaaLab Mtoni by SMS: text PLAY. Reply 1 repair, 2 save water, "
-        "3 water plan, 4 needs, or 0 exit. Reply HELP for help."
+    modern_ref = _phone_ref(phone_number)
+    modern_mobile = store.get_mobile(f"sms:{modern_ref}")
+    linked_lookup = getattr(store, "get_linked_student_id", None)
+    linked_student = linked_lookup(modern_ref) if linked_lookup else None
+    use_portfolio = (
+        linked_student is not None
+        or (
+            modern_mobile is not None
+            and isinstance(modern_mobile.state, dict)
+            and modern_mobile.state.get("mobile_v2")
+        )
+        or command
+        in {
+            "HELP",
+            "MSAADA",
+            "?",
+            "GAMES",
+            "MICHEZO",
+            "PLAY",
+            "START",
+            "CONTINUE",
+            "ENDELEA",
+            "STATUS",
+            "PROGRESS",
+            "MAENDELEO",
+            "STOP",
+            "ACHA",
+            "OPT IN",
+            "ANZA UJUMBE",
+        }
+        or command.startswith(("JOIN ", "JIUNGE ", "PLAY ", "CHEZA "))
     )
+    if use_portfolio:
+        reply = process_mobile_sms(
+            phone_number=phone_number,
+            message=message,
+            provider_message_id=provider_message_id,
+            received_at=received_at,
+            link_id=link_id,
+            store=store,
+            gateway=gateway,
+        )
+        return USSDOutcome(response=reply[:160], phone_ref=modern_ref)
+
+    help_reply = "MtaaLab games by SMS: text GAMES, then PLAY number. Reply HELP for commands."
     if command in {"HELP", "?"}:
         return USSDOutcome(response=help_reply)
 
@@ -514,7 +723,7 @@ def process_sms_game_message(
     mobile = store.get_mobile(mobile_id)
     if mobile is None and command not in {"PLAY", "START"}:
         return USSDOutcome(
-            response="MtaaLab Mtoni by SMS. Text PLAY to start. Reply HELP for the menu."
+            response="MtaaLab: text GAMES or PLAY to choose a game. Reply HELP for commands."
         )
 
     force_main_menu = command in {"PLAY", "START", "MENU", "STATUS"}

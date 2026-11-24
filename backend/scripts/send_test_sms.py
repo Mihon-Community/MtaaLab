@@ -8,6 +8,10 @@ from app.integrations.africas_talking.sms_service import send_mission_sms
 
 def main() -> int:
     """Send only to AT_TEST_PHONE; this script is never part of CI."""
+    if (settings.at_username or "sandbox").strip().casefold() != "sandbox":
+        print("This helper is sandbox-only. No live SMS was sent.")
+        return 2
+
     recipient = (settings.at_test_phone or "").strip()
     if not recipient:
         print("AT_TEST_PHONE is not configured.")

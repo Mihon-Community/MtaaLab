@@ -23,6 +23,7 @@ from app.integrations.africas_talking.menu_state import (
     phone_reference,
     render_menu,
 )
+from app.integrations.africas_talking.mobile_gameplay import _phone_ref
 from app.integrations.africas_talking.ussd_callback import process_ussd_callback
 from app.simulation.service import load_scenario
 
@@ -35,6 +36,12 @@ class FakeStore:
     def __init__(self) -> None:
         self.student_id = uuid4()
         self.mission_id = uuid4()
+        self.missions = [
+            SimpleNamespace(id=uuid4(), title="Chama Trust Circle"),
+            SimpleNamespace(id=uuid4(), title="Mama Mboga Market"),
+            SimpleNamespace(id=uuid4(), title="Mtoni Fever Response"),
+            SimpleNamespace(id=self.mission_id, title="Mtoni water resilience"),
+        ]
         self.mapping_ref = phone_reference(TEST_PHONE)
         self.mobile: dict[str, SimpleNamespace] = {}
         self.sessions: dict[UUID, SimpleNamespace] = {}
@@ -57,8 +64,23 @@ class FakeStore:
         ]
         return active[-1] if active else None
 
+    def get_active_session_for_mission(
+        self, student_id: UUID, mission_id: UUID
+    ) -> SimpleNamespace | None:
+        active = [
+            session
+            for session in self.sessions.values()
+            if session.student_id == student_id
+            and session.mission_id == mission_id
+            and session.status == "active"
+        ]
+        return active[-1] if active else None
+
     def get_mtoni_mission_id(self, student_id: UUID) -> UUID | None:
         return self.mission_id if student_id == self.student_id else None
+
+    def get_published_missions(self, student_id: UUID) -> list[SimpleNamespace]:
+        return list(self.missions) if student_id == self.student_id else []
 
     def save_mobile(
         self,
@@ -112,6 +134,9 @@ class FakeGateway:
     def get_or_create_session(
         self, mission_id: UUID, user_id: UUID, idempotency_key: str | None = None
     ) -> dict[str, object]:
+        active = self.store.get_active_session_for_mission(user_id, mission_id)
+        if active is not None:
+            return {"session_id": active.id, "state": active.state, "status": active.status}
         if idempotency_key in self.start_keys:
             session_id = self.start_keys[idempotency_key]
             session = self.store.sessions[session_id]
@@ -121,6 +146,7 @@ class FakeGateway:
         session = SimpleNamespace(
             id=session_id,
             student_id=user_id,
+            mission_id=mission_id,
             status="active",
             state=dict(self.scenario["initial_state"]),
         )
@@ -207,32 +233,32 @@ def test_first_dial_and_repeated_repair_confirmation_apply_once(
     client, store, gateway = webhook_app
 
     first = client.post("/api/webhooks/africastalking/ussd", data=ussd_body())
-    repair = client.post("/api/webhooks/africastalking/ussd", data=ussd_body("1"))
-    confirm = client.post("/api/webhooks/africastalking/ussd", data=ussd_body("1*1"))
+    selected = client.post("/api/webhooks/africastalking/ussd", data=ussd_body("1"))
+    confirmed = client.post("/api/webhooks/africastalking/ussd", data=ussd_body("1*1"))
     retry = client.post("/api/webhooks/africastalking/ussd", data=ussd_body("1*1"))
 
     assert (
-        first.status_code == repair.status_code == confirm.status_code == retry.status_code == 200
+        first.status_code
+        == selected.status_code
+        == confirmed.status_code
+        == retry.status_code
+        == 200
     )
-    assert first.text.startswith("CON Mtoni turn 0")
-    assert "costs 25 credits" in repair.text
-    assert "Decision recorded at turn 1" in confirm.text
-    assert confirm.text.splitlines()[1:] == [
-        "Water: 60",
-        "Budget: 75",
-        "1 Repair pipe",
-        "2 Save water",
-        "3 Water plan",
-        "4 Community needs",
-        "0 Exit",
-    ]
-    assert retry.text == confirm.text
-    assert len(confirm.text) <= 160
+    assert first.text == (
+        "CON Choose game\n1 Mtoni water resilience\n2 Mama Mboga Market\n"
+        "3 Mtoni Fever Response\n4 Chama Trust Circle\n0 Back"
+    )
+    assert selected.text.startswith("CON Mtoni water resilience 0/6")
+    assert "Turn saved 1" in confirmed.text
+    assert "budget 75" in confirmed.text
+    assert "5 Choose another game" not in confirmed.text
+    assert retry.text == confirmed.text
+    assert len(confirmed.text) <= 160
     assert len(gateway.decisions) == 1
     assert gateway.decisions[0][1] == "repair_main_pipe"
     assert gateway.decisions[0][2] == {}
     mobile = store.mobile["provider-session-1"]
-    assert mobile.phone_ref == phone_reference(TEST_PHONE)
+    assert mobile.phone_ref == _phone_ref(TEST_PHONE)
     assert TEST_PHONE not in str(mobile.state)
 
 
@@ -248,7 +274,7 @@ def test_final_ussd_turn_queues_one_sms_summary() -> None:
         gateway=gateway,
         background_tasks=background,
     )
-    confirmation = process_ussd_callback(
+    selected = process_ussd_callback(
         USSDCallbackRequest.model_validate(ussd_body("1")),
         store=store,
         gateway=gateway,
@@ -261,16 +287,16 @@ def test_final_ussd_turn_queues_one_sms_summary() -> None:
         background_tasks=background,
     )
 
-    assert first.response.startswith("CON Mtoni turn 5/6")
-    assert confirmation.response.startswith("CON Repair main pipe")
+    assert first.response.startswith("CON Choose game")
+    assert selected.response.startswith("CON Mtoni water resilience 5/6")
     assert completed.completed is True
-    assert completed.response.startswith("END Mission complete.")
+    assert completed.response.startswith("END Game complete.")
     assert len(background.tasks) == 1
     function, args, kwargs = background.tasks[0]
-    assert function is sms_service.send_mission_sms
-    assert args[:2] == (TEST_PHONE, "Mtoni")
-    assert "mission is complete" in str(args[2])
-    assert kwargs["recipient_ref"] == phone_reference(TEST_PHONE)
+    assert function is sms_service.send_sms
+    assert args[0] == TEST_PHONE
+    assert "Mtoni water resilience complete" in str(args[1])
+    assert kwargs["recipient_ref"] == _phone_ref(TEST_PHONE)
 
 
 def test_root_ussd_callback_accepts_query_token_and_rejects_wrong_url_token(
@@ -283,7 +309,7 @@ def test_root_ussd_callback_accepts_query_token_and_rejects_wrong_url_token(
     rejected = client.post("/ussd?token=wrong-query-token", data=ussd_body("1"))
 
     assert accepted.status_code == 200
-    assert accepted.text.startswith("CON Mtoni turn 0")
+    assert accepted.text.startswith("CON Choose game")
     assert rejected.status_code == 401
 
 
@@ -320,8 +346,7 @@ def test_incoming_sms_callback_returns_help_reply_with_url_token(
     assert sent == [
         (
             TEST_PHONE,
-            "MtaaLab Mtoni by SMS: text PLAY. Reply 1 repair, 2 save water, "
-            "3 water plan, 4 needs, or 0 exit. Reply HELP for help.",
+            "MtaaLab: JOIN code, GAMES, PLAY n, CONTINUE, STATUS, OPT IN, STOP.",
             {
                 "session_id": None,
                 "recipient_ref": phone_reference(TEST_PHONE),
@@ -332,7 +357,7 @@ def test_incoming_sms_callback_returns_help_reply_with_url_token(
     assert rejected.status_code == 401
 
 
-def test_sms_can_start_and_play_mtoni_with_separate_saved_session(
+def test_sms_can_start_and_play_mtoni_using_the_shared_saved_session(
     webhook_app: tuple[TestClient, FakeStore, FakeGateway],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -349,23 +374,24 @@ def test_sms_can_start_and_play_mtoni_with_separate_saved_session(
             data={"from": TEST_PHONE, "text": text, "id": message_id},
         )
 
-    ussd = client.post("/api/webhooks/africastalking/ussd", data=ussd_body())
-    started = incoming("PLAY", "sms-message-1")
-    repair = incoming("1", "sms-message-2")
+    ussd_list = client.post("/api/webhooks/africastalking/ussd", data=ussd_body())
+    ussd = client.post("/api/webhooks/africastalking/ussd", data=ussd_body("1"))
+    game_list = incoming("PLAY", "sms-message-1")
+    started = incoming("PLAY 1", "sms-message-2")
     confirmed = incoming("1", "sms-message-3")
     duplicate = incoming("1", "sms-message-3")
 
-    sms_session = store.mobile[f"sms:{phone_reference(TEST_PHONE)}"].session_id
+    sms_session = store.mobile[f"sms:{_phone_ref(TEST_PHONE)}"].session_id
     ussd_session = store.mobile["provider-session-1"].session_id
-    assert ussd.status_code == started.status_code == repair.status_code == 200
+    assert ussd_list.status_code == ussd.status_code == game_list.status_code == 200
+    assert started.status_code == 200
     assert confirmed.status_code == duplicate.status_code == 200
-    assert started.json() == {"status": "accepted"}
-    assert "Mtoni turn 0/6" in sent[0][1]
-    assert "costs 25 credits" in sent[1][1]
-    assert "Decision recorded at turn 1" in sent[2][1]
+    assert "Choose game" in sent[0][1]
+    assert "Mtoni water resilience 0/6" in sent[1][1]
+    assert "Turn saved 1" in sent[2][1]
     assert gateway.store.sessions[sms_session].state["current_turn"] == 1
-    assert sms_session != ussd_session
-    assert gateway.decisions[-1][3].startswith("sms:")
+    assert sms_session == ussd_session
+    assert gateway.decisions[-1][3].startswith("mobile:sms:")
     assert len(gateway.decisions) == 1
 
 
@@ -385,7 +411,7 @@ def test_sms_text_requires_play_before_starting_and_uses_short_replies(
     )
 
     assert response.status_code == 200
-    assert "Text PLAY to start" in sent[0]
+    assert "text GAMES or PLAY" in sent[0]
     assert not store.mobile
 
 
@@ -397,10 +423,10 @@ def test_sms_play_restarts_an_ended_run_on_the_same_phone(
     old = gateway.get_or_create_session(store.mission_id, store.student_id, "old-sms-run")
     old_session_id = old["session_id"]
     gateway.store.sessions[old_session_id].status = "completed"
-    mobile_id = f"sms:{phone_reference(TEST_PHONE)}"
+    mobile_id = f"sms:{_phone_ref(TEST_PHONE)}"
     store.save_mobile(
         provider_session_id=mobile_id,
-        phone_ref=phone_reference(TEST_PHONE),
+        phone_ref=_phone_ref(TEST_PHONE),
         session_id=old_session_id,
         current_menu="ended",
         state={"screen": "ended", "recent_requests": []},
@@ -415,14 +441,14 @@ def test_sms_play_restarts_an_ended_run_on_the_same_phone(
 
     response = client.post(
         f"/webhook/incoming?token={WEBHOOK_TEST_TOKEN}",
-        data={"from": TEST_PHONE, "text": "PLAY", "id": "new-sms-run"},
+        data={"from": TEST_PHONE, "text": "PLAY 1", "id": "new-sms-run"},
     )
 
     new_session_id = store.mobile[mobile_id].session_id
     assert response.status_code == 200
     assert new_session_id != old_session_id
     assert gateway.store.sessions[new_session_id].state["current_turn"] == 0
-    assert "Mtoni turn 0/6" in sent[0]
+    assert "Mtoni water resilience 0/6" in sent[0]
 
 
 def test_incoming_sms_callback_rejects_missing_or_invalid_sender(
@@ -444,20 +470,20 @@ def test_cancel_invalid_input_and_exit_are_short_and_safe(
     webhook_app: tuple[TestClient, FakeStore, FakeGateway],
 ) -> None:
     client, _, gateway = webhook_app
-    client.post("/api/webhooks/africastalking/ussd", data=ussd_body())
-    confirm = client.post("/api/webhooks/africastalking/ussd", data=ussd_body("1"))
-    canceled = client.post("/api/webhooks/africastalking/ussd", data=ussd_body("1*2"))
+    game_list = client.post("/api/webhooks/africastalking/ussd", data=ussd_body())
+    selected = client.post("/api/webhooks/africastalking/ussd", data=ussd_body("1"))
+    action = client.post("/api/webhooks/africastalking/ussd", data=ussd_body("1*2"))
     invalid = client.post("/api/webhooks/africastalking/ussd", data=ussd_body("1*2*9"))
     exited = client.post("/api/webhooks/africastalking/ussd", data=ussd_body("1*2*0"))
 
-    assert "costs 25 credits" in confirm.text
-    assert canceled.text.startswith("CON Mtoni turn 0")
-    assert "Invalid choice." in invalid.text
-    assert "Repair" in invalid.text
-    assert exited.text.startswith("END ")
-    assert "sandbox demo" in exited.text
-    assert gateway.decisions == []
-    assert all(len(item.text) <= 160 for item in (confirm, canceled, invalid, exited))
+    assert game_list.text.startswith("CON Choose game")
+    assert selected.text.startswith("CON Mtoni water resilience 0/6")
+    assert action.text.startswith("CON Turn saved 1")
+    assert invalid.text.startswith("CON Why did this happen?")
+    assert "0 Menu" in invalid.text
+    assert exited.text.startswith("CON MtaaLab")
+    assert len(gateway.decisions) == 1
+    assert all(len(item.text) <= 160 for item in (game_list, selected, action, invalid, exited))
 
 
 def test_conservation_and_allocation_use_configured_presets(
@@ -465,38 +491,29 @@ def test_conservation_and_allocation_use_configured_presets(
 ) -> None:
     client, _, gateway = webhook_app
     client.post("/api/webhooks/africastalking/ussd", data=ussd_body())
-    conservation = client.post("/api/webhooks/africastalking/ussd", data=ussd_body("2"))
-    client.post("/api/webhooks/africastalking/ussd", data=ussd_body("2*1"))
-    assert "costs 15 credits" in conservation.text
-    assert gateway.decisions[0][1:] == (
-        "conservation_campaign",
-        {"household_reduction_ratio": 0.1},
-        "ussd:provider-session-1:2",
-    )
+    client.post("/api/webhooks/africastalking/ussd", data=ussd_body("1"))
+    conservation = client.post("/api/webhooks/africastalking/ussd", data=ussd_body("1*2"))
+    assert "Turn saved 1" in conservation.text
+    assert gateway.decisions[0][1] == "conservation_campaign"
+    assert gateway.decisions[0][2] == {"household_reduction_ratio": 0.1}
 
     # A new provider session reuses the active simulation but has its own menu state.
     client.post(
         "/api/webhooks/africastalking/ussd",
         data=ussd_body("", sessionId="provider-session-2"),
     )
+    select_mtoni = client.post(
+        "/api/webhooks/africastalking/ussd",
+        data=ussd_body("1", sessionId="provider-session-2"),
+    )
     allocation = client.post(
         "/api/webhooks/africastalking/ussd",
-        data=ussd_body("3", sessionId="provider-session-2"),
+        data=ussd_body("1*3", sessionId="provider-session-2"),
     )
-    confirm_policy = client.post(
-        "/api/webhooks/africastalking/ussd",
-        data=ussd_body("3*2", sessionId="provider-session-2"),
-    )
-    submitted = client.post(
-        "/api/webhooks/africastalking/ussd",
-        data=ussd_body("3*2*1", sessionId="provider-session-2"),
-    )
-    assert allocation.text.startswith("CON Water plan:")
-    assert "cost 0 credits" in confirm_policy.text
-    assert submitted.text.startswith("CON Decision recorded")
+    assert select_mtoni.text.startswith("CON Mtoni water resilience 1/6")
+    assert allocation.text.startswith("CON Turn saved 2")
     assert gateway.decisions[-1][1] == "change_allocation"
-    assert gateway.decisions[-1][2] == {"policy_id": "household_focus"}
-    assert gateway.decisions[-1][3] == "ussd:provider-session-2:3"
+    assert gateway.decisions[-1][2] == {"policy_id": "balanced"}
 
 
 def test_expired_menu_restarts_before_action_submission(
@@ -505,16 +522,16 @@ def test_expired_menu_restarts_before_action_submission(
     client, store, gateway = webhook_app
     first = client.post("/api/webhooks/africastalking/ussd", data=ussd_body())
     mobile = store.mobile["provider-session-1"]
-    mobile.state = {"screen": "confirm_repair", "decision_step": 1}
-    mobile.current_menu = "confirm_repair"
+    mobile.state = {"screen": "turn", "mobile_v2": True, "language": "en"}
+    mobile.current_menu = "turn"
     mobile.expires_at = datetime.now(UTC) - timedelta(seconds=1)
 
     restarted = client.post("/api/webhooks/africastalking/ussd", data=ussd_body("1"))
 
-    assert first.text.startswith("CON Mtoni turn 0")
-    assert "costs 25 credits" in restarted.text
+    assert first.text.startswith("CON Choose game")
+    assert restarted.text.startswith("CON Choose game")
     assert gateway.decisions == []
-    assert store.mobile["provider-session-1"].current_menu == "confirm_repair"
+    assert store.mobile["provider-session-1"].current_menu == "games"
 
 
 def test_invalid_callback_and_wrong_service_code_return_contract_statuses(
@@ -638,6 +655,7 @@ def test_sms_status_callback_upserts_without_storing_phone(
             "status": "Success",
             "phoneNumber": TEST_PHONE,
             "failureReason": "Invalid phone number",
+            "retryCount": "0",
         },
     )
     retry = client.post(
@@ -682,6 +700,23 @@ def test_sms_status_keeps_known_errors_and_provider_codes_only(
     assert store.delivery_status["known-error"]["error_code"] == "invalid_phone_number"
     assert store.delivery_status["provider-code"]["error_code"] == "at_001"
     assert store.delivery_status["free-text"]["error_code"] is None
+
+
+def test_sandbox_sms_helper_refuses_live_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from scripts import send_test_sms
+
+    monkeypatch.setattr(send_test_sms.settings, "at_username", "live-app")
+    monkeypatch.setattr(
+        send_test_sms,
+        "send_mission_sms",
+        lambda *_args, **_kwargs: pytest.fail("sandbox helper attempted a live SMS"),
+    )
+
+    assert send_test_sms.main() == 2
+    assert "sandbox-only" in capsys.readouterr().out
 
 
 def test_missing_sms_key_returns_not_configured_and_warns_once(

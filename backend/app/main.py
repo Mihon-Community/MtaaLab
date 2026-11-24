@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.decisions import router as decisions_router
 from app.api.missions import router as missions_router
+from app.api.mobile import router as mobile_router
 from app.api.reports import router as reports_router
 from app.api.schemas import HealthResponse
 from app.api.simulations import router as simulations_router
@@ -20,6 +21,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(missions_router)
+app.include_router(mobile_router)
 app.include_router(simulations_router)
 app.include_router(decisions_router)
 app.include_router(reports_router)

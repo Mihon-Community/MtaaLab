@@ -74,5 +74,22 @@
     "Explain how finite water, infrastructure loss, and sector demands interact.",
     "Compare allocation trade-offs using recorded simulation evidence.",
     "Use a replay to evaluate an alternative plan."
-  ]
+  ],
+  "reflection_choices": {
+    "1": {"tag": "finite-resource-tradeoff", "label": "Needs exceeded available water"},
+    "2": {"tag": "service-priority", "label": "Allocation policy changed the tradeoff"},
+    "3": {"tag": "hint-requested", "label": "I need a hint"}
+  },
+  "hint_ladder": {
+    "en": [
+      "Leakage is removed before water reaches the sectors.",
+      "Clinic and school minimums affect the remaining allocation.",
+      "Compare turn accounting, service levels and unmet demand."
+    ],
+    "sw": [
+      "Maji yanayovuja huondolewa kabla ya mgao kwa sekta.",
+      "Mahitaji ya kliniki na shule huathiri maji yaliyobaki.",
+      "Linganisha hesabu ya zamu, huduma na mahitaji yasiyotimizwa."
+    ]
+  }
 }

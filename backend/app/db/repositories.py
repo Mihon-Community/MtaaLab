@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import false, select
+from sqlalchemy import false, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, aliased
 
@@ -27,6 +27,7 @@ from app.db.models import (
     SimulationSession,
     WorldStateSnapshot,
 )
+from app.simulation.mission_order import mission_order_key
 
 
 class ProfileRepository:
@@ -82,9 +83,41 @@ class MissionRepository:
                 Mission.published_version_id.is_not(None),
                 Mission.id.in_(self._assigned_mission_ids(user_id)),
             )
-            .order_by(Mission.title)
         )
-        return list(self.session.scalars(query))
+        missions = list(self.session.scalars(query))
+        return sorted(missions, key=lambda mission: mission_order_key(mission.title))
+
+    def session_counts_by_mission(self, user_id: UUID) -> dict[UUID, int]:
+        """Return deterministic recommendation inputs without loading full session state."""
+        rows = self.session.execute(
+            select(ScenarioVersion.mission_id, func.count(SimulationSession.id))
+            .join(SimulationSession, SimulationSession.mission_version_id == ScenarioVersion.id)
+            .where(SimulationSession.student_id == user_id)
+            .group_by(ScenarioVersion.mission_id)
+        )
+        return {mission_id: int(count) for mission_id, count in rows}
+
+    def latest_sessions_by_mission(self, user_id: UUID) -> dict[UUID, dict[str, Any]]:
+        """Return the latest run per game for a student's resume/replay choices."""
+        rows = self.session.execute(
+            select(
+                ScenarioVersion.mission_id,
+                SimulationSession.id,
+                SimulationSession.status,
+                SimulationSession.current_turn,
+                SimulationSession.started_at,
+            )
+            .join(SimulationSession, SimulationSession.mission_version_id == ScenarioVersion.id)
+            .where(SimulationSession.student_id == user_id)
+            .order_by(SimulationSession.started_at.desc(), SimulationSession.id.desc())
+        )
+        latest: dict[UUID, dict[str, Any]] = {}
+        for mission_id, session_id, session_status, turn, _started_at in rows:
+            latest.setdefault(
+                mission_id,
+                {"session_id": session_id, "status": session_status, "current_turn": turn},
+            )
+        return latest
 
     def get_published(self, mission_id: UUID) -> tuple[Mission, ScenarioVersion] | None:
         mission = self.session.scalar(
@@ -263,7 +296,7 @@ class MobileSessionRepository:
         *,
         provider_session_id: str,
         phone_ref: str,
-        session_id: UUID,
+        session_id: UUID | None,
         current_menu: str,
         state: dict[str, Any],
         expires_at: datetime,

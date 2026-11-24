@@ -91,6 +91,7 @@ def render_menu(
                     "2 Save water",
                     "3 Water plan",
                     "4 Community needs",
+                    "5 Choose another game",
                     "0 Exit",
                 )
             )
@@ -244,5 +245,6 @@ def recorded_message(state: dict[str, Any]) -> str:
         "2 Save water\n"
         "3 Water plan\n"
         "4 Community needs\n"
+        "5 Choose another game\n"
         "0 Exit"
     )

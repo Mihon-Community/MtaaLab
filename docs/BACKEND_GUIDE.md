@@ -1,25 +1,31 @@
-# Backend guide
+# Backend and mobile implementation guide
 
 ## Scope and ownership
 
-The backend owns authenticated Mtoni mission and simulation APIs, deterministic turn calculations, persistence, history, replay, guarded NVIDIA feedback, assignment-scoped mission access, and Africa's Talking sandbox callbacks. Frontend integration remains out of scope. Current work is on `feature/lennox`; the frontend branch remains `feature/steve`.
+The backend serves teacher-assigned, grade-open games, authenticated web sessions, deterministic simulation state, reflection/history, bounded Mtoni AI feedback, Supabase persistence, and Africa's Talking SMS/USSD callbacks. A learner's web, SMS, and USSD activity resolves to the same profile and active run for a mission. Teachers can issue one-time phone-link codes in the `/teacher` page. The game details and mobile command flow are in [GAME_PORTFOLIO.md](GAME_PORTFOLIO.md); request/response fields and authorization are in [API_CONTRACT.md](API_CONTRACT.md).
 
 ## Local setup
 
-Use Python 3.12. From repository root:
+From repository root, create the one root `.env` from `.env.example` if needed, then install and start the services:
 
 ```powershell
 Copy-Item .env.example .env
-cd backend
-py -3.12 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements-dev.txt
-uvicorn app.main:app --reload
+docker compose up --build
 ```
 
-Both apps read the root `.env`; do not create nested `.env` files. The app can boot with optional AI credentials absent. Health is `GET http://localhost:8000/api/health`.
+The API health check is `GET http://localhost:8000/api/health`; the web app is `http://localhost:5173`. Docker Compose starts backend, frontend, and the consent-guarded `mobile-nudges` worker. The nudge worker skips sends until the database and Africa's Talking credentials are configured, and never sends without explicit learner `OPT IN`.
 
-Run local unit/API tests and static checks from `backend/`:
+Both apps read the root `.env`; nested `backend/.env` or `frontend/.env` files are not used. Required backend settings for feature-phone linking are:
+
+```dotenv
+PHONE_HMAC_SECRET=
+PHONE_ENCRYPTION_KEY=
+MOBILE_JOIN_CODE_PEPPER=
+```
+
+Use a random secret of at least 32 characters for HMAC and join-code pepper. Generate a Fernet-compatible key for `PHONE_ENCRYPTION_KEY`; keep it stable while opted-in numbers exist. Do not put any of these secrets in `VITE_` variables or commit the local `.env`. Other provider/database secrets remain backend-only. A secret rotation affects existing mobile links or stored phone ciphertext; see [API_CONTRACT.md](API_CONTRACT.md).
+
+For local backend checks from `backend/`:
 
 ```powershell
 pytest -q -m "not integration and not nvidia"
@@ -27,49 +33,69 @@ ruff check .
 ruff format --check .
 ```
 
-Real database acceptance checks use only isolated synthetic fixtures and remove only rows created by that test. Run them with:
-
-```powershell
-pytest -q -m integration
-```
-
-They require a reachable `SUPABASE_DB_URL`. The complete non-NVIDIA suite passed in a disposable Docker-network runner, including the real Supabase persistence and RLS cases. The host runner cannot reliably reach the configured database directly. CI has no database credential and skips DB-dependent checks. The optional live NIM smoke test is marked `nvidia` and skips when `NVIDIA_API_KEY` is absent. No secrets are needed for unit tests.
+Live Supabase persistence tests require a reachable `SUPABASE_DB_URL`; NIM smoke tests require the provider key and are optional. Do not use a real learner's personal phone or account in automated tests.
 
 ## Code map
 
-- `app/api/`: JWT-backed profile dependency, mission discovery, simulations, decisions, reports, health, and Africa's Talking callbacks.
-- `app/simulation/engine.py`: deterministic turn orchestration; `world_state.py`: bounded state and result models; `allocation_rules.py`: explicit water policy; `action_validator.py`: ranges, costs, and prerequisites; `event_catalogue.py`: scripted events; `service.py`: transactional PostgreSQL gateway; `replay.py`: isolated child sessions.
-- `app/ai/`: configurable NVIDIA NIM client, stakeholder dialogue, reasoning evaluation, debrief, strict output schemas, and prompts.
-- `app/db/`: SQLAlchemy models, repositories, connection/session helpers. SQL migrations are in `supabase/migrations/`.
-- `app/integrations/africas_talking/`: bounded USSD menu transitions, SMS delivery, and callback orchestration over the shared simulation service.
-- `app/learning/`: idempotent persistence and report serialization for qualitative assessments.
-- `app/security/`: Supabase JWKS JWT validation, authorization helpers, and public webhook rate limiting.
-- `tests/`: engine and API unit tests, persistence integration checks, auth tests, AI fallback tests, and optional live NIM smoke test.
+- `app/api/`: authentication, mission and simulation routes, teacher mobile roster and join-code issuance, reports, and provider callbacks.
+- `app/simulation/engine.py`: original Mtoni rules; `portfolio_engine.py`: deterministic Soko, Fever Response, and Chama rules; `service.py`: versioned scenario dispatch and transactions.
+- `app/simulation/scenarios/`: immutable versioned JSON for all four games.
+- `app/integrations/africas_talking/`: SMS/USSD routing, privacy helpers, callback validation, provider sending, and callback idempotency.
+- `app/db/`: SQLAlchemy models/repositories; `supabase/migrations/`: schema, RLS, and seed changes.
+- `app/ai/`: bounded qualitative Mtoni feedback and static fallbacks. The phone callback path never calls NVIDIA.
+- `scripts/run_nudge_worker.py`: consented SMS resume reminders with quiet-hour and monthly caps.
+- `frontend/src/features/teacher-view/TeacherPage.tsx`: class-scoped, one-time code issuance.
+- `frontend/src/features/simulation/PortfolioRunPage.tsx`: shared web game and reflection interface.
 
 ## Invariants
 
-- The specification says the model must never decide water quantities, costs, budgets, crop health, or service levels. The engine is deterministic for a scenario version, prior state, and validated action.
-- A decision is atomic: decision row, events, snapshot, and current-session pointer commit together. Session row locking, expected-turn validation, and an idempotency key prevent double application.
-- Replay creates a separate run with the same scenario version and initial state; it never overwrites its source.
-- Supabase/NVIDIA credentials remain backend-only. `SUPABASE_DB_URL` is the SQLAlchemy/psycopg persistence path. Never put secret keys into `VITE_` variables.
-- Validate NIM output with Pydantic; enforce actor and fact allowlists and length limits; use safe static/factual fallbacks. AI failure does not block a turn.
-- Keep names, phone numbers, school IDs, prompts, and hidden reasoning out of AI audit records. Only validated output and operational metadata are stored.
-- RLS stays enabled. Browser roles cannot write authoritative simulation data.
-- Mission discovery and session creation require an assignment to one of the learner's active classes; teachers may manage assignments only in their own school-scoped classes.
-- Public Africa's Talking callbacks require the root `WEBHOOK_TOKEN`; root callback URLs use `?token=<WEBHOOK_TOKEN>` and the legacy API USSD/status routes also accept a header or Bearer token. An unset token fails closed. USSD input is a bounded cumulative path submitted through the same deterministic simulation gateway as the PWA. The callback stores only a hashed phone reference, uses a 180-second menu expiry, replays a stored response for a duplicate request, and never calls NVIDIA. Incoming SMS supports `PLAY`/`START`, the same Mtoni menu choices and confirmations, `MENU`/`STATUS`, and `HELP`; it submits each action through that same engine. SMS has a separate persisted session per mapped phone, a 30-day expiry, and provider-message retry protection. Replies go through the Africa's Talking SMS API, using the incoming `to` short code as sender ID when supplied. Message text and sender numbers are not retained.
-- The Africa's Talking sandbox does not receive the app's secret from `.env`. For local callbacks, stop any existing ngrok tunnel and run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\backend\scripts\start-ngrok.ps1` from the repository root in a second PowerShell window. It creates a temporary, path-scoped ngrok Traffic Policy for legacy API callbacks. Set the service-code callback URL to `<PUBLIC_BASE_URL>/ussd?token=<WEBHOOK_TOKEN>` and the incoming-message callback URL to `<PUBLIC_BASE_URL>/webhook/incoming?token=<WEBHOOK_TOKEN>`. If delivery reports are enabled, use `<PUBLIC_BASE_URL>/api/webhooks/africastalking/sms-status?token=<WEBHOOK_TOKEN>`.
-- Outbound sandbox SMS is lazy-initialized, limited to 160 characters, and persisted to `delivery_logs`. Mission completion queues a summary SMS; `backend/scripts/send_test_sms.py` sends a manual test to `AT_TEST_PHONE` and is never run by CI. `sent` means Africa's Talking accepted the message, not that the handset received it. The delivery-report callback records asynchronous outcomes when configured.
-- To play Mtoni by SMS, launch the Africa's Talking sandbox simulator using the mapped `AT_TEST_PHONE` and send `PLAY` to the configured sandbox short code. Reply with the numbered action, then confirm with `1` or cancel with `2`; text `MENU` to return to the main menu and `HELP` for the choices. `PLAY` after completing or exiting starts a replay. Only phones mapped to an assigned demo learner are enabled. The callback must be configured and the computer/backend kept online for replies. For a standalone delivery check, run `docker compose exec backend python -m scripts.send_test_sms` and confirm it in the simulator; provider status `sent` alone is not handset delivery proof.
-- A qualitative assessment is only created after mission completion and is unique per session and rubric version.
+- Mission discovery is assigned-class scoped but not restricted to one grade. The teacher chooses which assigned game to use; curriculum alignment is proposed and needs educator review.
+- Deterministic backend rules and immutable scenario versions own all numbers, decisions, event outcomes, and state transitions. NIM cannot calculate a game outcome. A committed decision persists decision, events, snapshot, and state atomically.
+- Idempotency protects session creation and turn submission. SMS/USSD duplicate callbacks return their prior response. A retry cannot apply a second turn.
+- Web, SMS, and USSD share the learner's saved active session for a game. Phone provider menu state is separate from game state and may expire without erasing progress.
+- Teacher-issued codes are single-use, seven-day codes stored as peppered digests. A code can be retried only by the phone already linked to its learner.
+- Gameplay saves an HMAC phone reference, not the raw phone. Only an explicit reminder opt-in stores encrypted phone ciphertext. `STOP`/`ACHA` clears it; opting out does not remove game access.
+- Nudge worker checks consent, at least one confirmed active turn, a new turn, 09:00–20:00 Africa/Nairobi, and a maximum of four send attempts per month. The cap is reserved before the provider request to protect against ambiguous timeout duplicates; failed sends count as attempts.
+- Browser roles cannot write simulation, reflection, join-code, or learner channel link tables directly. RLS remains enabled; backend authorization scopes each operation to the authenticated school/class/session.
+- Do not write phone numbers, inbound message bodies, webhook tokens, or secrets to logs. Keep `VITE_` keys public only.
+- Kenya child-data legal review and guardian/school authorization are **needs verification**. Phone link and SMS `OPT IN` are not legal consent to process child data. Review applicable ODPC guidance before live use with minors.
 
-## Supabase status
+## Africa's Talking setup and play
 
-The connected project has migrations 0001-0006, including assignment/mobile callback storage and same-school assignment read policy, applied. The synthetic Mtoni mission is assigned to its demo class, and one synthetic phone mapping stores only the SHA-256 reference. See `supabase/README.md` and `docs/INTEGRATION_STATUS.md`. The Supabase security advisor currently reports leaked-password protection disabled; this is an Auth Dashboard setting. A database password rotation also remains for the project owner because the available MCP SQL tool rejected role password changes.
+The public callbacks require the root `WEBHOOK_TOKEN` as a query parameter:
 
-## Scenario and API limits
+- USSD: `<PUBLIC_BASE_URL>/ussd?token=<WEBHOOK_TOKEN>`
+- Incoming SMS: `<PUBLIC_BASE_URL>/webhook/incoming?token=<WEBHOOK_TOKEN>`
+- Optional delivery reports: `<PUBLIC_BASE_URL>/api/webhooks/africastalking/sms-status?token=<WEBHOOK_TOKEN>`
 
-Only one game is currently seeded and playable: Mtoni water resilience. The project specification deliberately scoped the competition prototype to one well-built mission and listed additional water, energy, agriculture, and ecosystem missions as future work. Mtoni's fictional water and budget values are still marked as placeholders pending team review. Its simulation state and deterministic rules are Mtoni-specific, so each added game needs its own reviewed scenario, state/actions/rules, seed assignment, and SMS/USSD menu before publication. Mission discovery and session creation are assignment-scoped. Session creation supports per-student, per-mission-version idempotency; decision keys are scoped to a session and replay keys to a parent session. A separate no-action `/advance` is not supported; submitting a decision advances one turn. See `docs/API_CONTRACT.md` and `docs/SIMULATION_RULES.md`.
+Set those URLs in the Africa's Talking dashboard. For local development, run the repository's ngrok script in a separate PowerShell window and keep Docker/ngrok online while testing. The service-code callback must match `AT_USSD_SERVICE_CODE`. If `AT_ALLOWED_PHONES` is configured, add the test number there; a nonempty list blocks any number not on it from both onboarding and play.
 
-## MVP acceptance ownership
+Teacher steps: sign in at `/teacher`, select a class and learner, create a code, and share it with that learner. In the sandbox SMS simulator, send `JOIN CODE`; in USSD, use the simulator's dialer, select a language, and enter the code. Then send `GAMES` and `PLAY 1`, or choose `2` in the USSD main menu and select a game. Use `CONTINUE` or USSD menu choice `1` to resume. Follow reflection prompts before advancing. `HELP` lists commands. `OPT IN` enables optional nudges; `STOP` ends nudges while keeping play available. Sandbox SMS replies appear in the simulator, not on a physical handset.
 
-The backend work covers SIM-01..06, AI-01..03, DB-01..02, REP-01, AT-01..03, and the server side of MOB-01 to the status recorded in `docs/INTEGRATION_STATUS.md`. Frontend offline/reconnect behavior is not implemented here. The sandbox send API has returned `sent`; final handset delivery still depends on the Africa's Talking simulator/telco delivery report.
+To verify real Supabase code redemption, retry handling, encryption on opt-in, and cleanup on `STOP` using only the seeded synthetic learner, run:
+
+```powershell
+docker compose exec backend python -m scripts.smoke_mobile_privacy
+```
+
+This smoke check writes and removes its own temporary code/link records. It does not send an SMS.
+
+This project currently uses `AT_USERNAME=sandbox`. Sandbox SMS is delivered to Africa's Talking's web simulator, not a physical handset. Log into the simulator and register the test number there; then use its SMS inbox or USSD simulator to play. Africa's Talking documents this in its [sandbox setup guide](https://help.africastalking.com/en/articles/1170660-how-do-i-get-started-on-the-africa-s-talking-sandbox). A sandbox `DeliveryFailure` can mean the simulator is not logged in or is unreachable ([failure guide](https://help.africastalking.com/en/articles/742491-why-did-my-messages-fail)).
+
+For an actual handset test, change `AT_USERNAME` and `AT_API_KEY` in the root `.env` to the Africa's Talking Live app credentials. Sandbox and Live use separate keys. The Live app also needs an approved sender ID or shortcode and available balance. Keep the callbacks pointed at the public host, put the real test number in `AT_ALLOWED_PHONES` if configured, then start a game by sending SMS from that handset. Live SMS may incur charges. The `scripts.send_test_sms` helper now refuses to send when `AT_USERNAME` is not `sandbox`.
+
+Provider API status `sent` only means accepted for processing. Confirm final `Success`/`Delivered` status separately; see Africa's Talking's [delivery status definitions](https://help.africastalking.com/en/articles/16150386-messaging-error-codes). A mocked callback or HTTP 200 alone cannot prove handset delivery.
+
+## Database and external status
+
+Migrations `0007_portfolio_games.sql`, `0008_feature_phone_access.sql`, and `0009_mobile_access_policies_and_indexes.sql` add the game portfolio, choice-only reflections, teacher-issued codes, HMAC phone links, consent fields, explicit backend-only policies, supporting indexes, and pre-run mobile session support. Apply them to Supabase before using the new portfolio or linked-phone paths in a deployed backend. The seed adds three games to the synthetic Mtoni demo class; production mission assignments must be prepared by the school administrator. Do not treat local migration files or passing unit tests as proof that the hosted database or Africa's Talking account is configured.
+
+The design requires separate verification of Supabase migration status, root environment settings, teacher-issued code flow, configured service code, query-token callbacks, sender balance, sandbox phone allowlist, SMS delivery callback, and the actual handset. Record measured latency only for complete callback paths; the previous unmapped-phone probes do not measure game or database decision latency.
+
+## Known product limits
+
+- Only four deterministic scenarios are available now. Simulation efficacy, teacher usability, learning outcomes, and grade suitability have not been established; no learning-impact claim should be made.
+- Soko, Fever Response, and Chama debriefs use a static fallback. Mtoni's current NIM qualitative rubric must not be applied to those games.
+- Kiswahili labels are included for feature-phone menus and hints but need fluent educator review.
+- The app does not capture guardian details or document parental/guardian authorization. This is a launch prerequisite for any deployment processing children's personal data, marked **needs verification**.
+- Africa's Talking sandbox and provider handset/network delivery require manual acceptance. Automated tests cannot simulate the external network.

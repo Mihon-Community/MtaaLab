@@ -14,6 +14,9 @@ from app.api.schemas import (
     CreateSimulationRequest,
     ErrorResponse,
     HistoryResponse,
+    ReflectionRequest,
+    ReflectionResponse,
+    ReflectionStatusResponse,
     ReplayRequest,
     ReplayResponse,
     SessionCreatedResponse,
@@ -56,6 +59,7 @@ def get_simulation_state(
             session_id=result["session_id"],
             turn=result["turn"],
             status=result["status"],
+            scenario_id=result.get("scenario_id", "mtoni"),
             state=result["state"],
         )
     except HTTPException:
@@ -130,3 +134,46 @@ def advance_without_decision(
         status_code=status.HTTP_409_CONFLICT,
         detail="Submit a decision to advance the MVP simulation by one turn.",
     )
+
+
+@router.post("/{session_id}/reflections", response_model=ReflectionResponse)
+def record_reflection(
+    session_id: UUID,
+    request: ReflectionRequest,
+    user: CurrentUser = Depends(get_current_user),  # noqa: B008
+    gateway: SimulationGateway = Depends(get_simulation_gateway),  # noqa: B008
+) -> ReflectionResponse:
+    """Record a low-data, choice-based explanation tied to confirmed simulation evidence."""
+    try:
+        result = gateway.record_reflection(
+            session_id,
+            user.id,
+            request.turn_number,
+            request.answer_code,
+        )
+        return ReflectionResponse.model_validate(result)
+    except HTTPException:
+        raise
+    except Exception as error:
+        raise simulation_http_error(error) from error
+
+
+@router.get(
+    "/{session_id}/reflections/{turn_number}",
+    response_model=ReflectionStatusResponse,
+)
+def get_reflection(
+    session_id: UUID,
+    turn_number: int,
+    user: CurrentUser = Depends(get_current_user),  # noqa: B008
+    gateway: SimulationGateway = Depends(get_simulation_gateway),  # noqa: B008
+) -> ReflectionStatusResponse:
+    try:
+        result = gateway.get_reflection(session_id, user.id, turn_number)
+        return ReflectionStatusResponse(
+            reflection=ReflectionResponse.model_validate(result) if result else None
+        )
+    except HTTPException:
+        raise
+    except Exception as error:
+        raise simulation_http_error(error) from error

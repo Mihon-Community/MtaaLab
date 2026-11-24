@@ -129,7 +129,7 @@ def send_sms(
     recipient_ref: str | None = None,
     sender_id: str | None = None,
 ) -> SmsResult:
-    """Send one short sandbox SMS; never initialize the SDK at import time."""
+    """Send one short SMS in the configured Africa's Talking environment."""
     phone = recipient.strip()
     safe_recipient_ref = recipient_ref or sha256(phone.encode("utf-8")).hexdigest()
     if not phone or len(phone) > 32:
