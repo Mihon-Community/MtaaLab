@@ -9,37 +9,37 @@ export const routePages = [
   {
     path: "/",
     title: "Mission lobby",
-    description: "Available mission placeholder.",
+    description: "Missions assigned to your classes.",
     component: LobbyPage,
   },
   {
     path: "/briefing",
     title: "Briefing",
-    description: "Mission briefing placeholder.",
+    description: "Mission objectives, rules and controls.",
     component: BriefingPage,
   },
   {
     path: "/simulation",
     title: "Simulation",
-    description: "Mtoni simulation placeholder.",
+    description: "Inspect the world and make a confirmed decision.",
     component: SimulationPage,
   },
   {
     path: "/replay",
     title: "Replay",
-    description: "Replay comparison placeholder.",
+    description: "Compare the original and an alternative run.",
     component: ReplayPage,
   },
   {
     path: "/report",
     title: "Learning report",
-    description: "Learning report placeholder.",
+    description: "Review outcomes and reasoning evidence.",
     component: ReportPage,
   },
   {
     path: "/teacher",
     title: "Teacher view",
-    description: "Teacher view placeholder.",
+    description: "Review assigned missions and learner reports.",
     component: TeacherPage,
   },
 ];
