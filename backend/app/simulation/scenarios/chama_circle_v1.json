@@ -1,0 +1,60 @@
+{
+  "scenario_id": "chama_circle",
+  "rules_version": "chama-circle-v1",
+  "title": "Chama Trust Circle",
+  "description": "A fictional group weighs savings, a reserve and requests using transparent token accounts.",
+  "grade_band": "Teacher assigned",
+  "turn_duration": {"value": 1, "unit": "group meeting"},
+  "number_of_turns": 6,
+  "units": {"fund": "fictional tokens"},
+  "initial_state": {
+    "current_turn": 0,
+    "pool_tokens": 100,
+    "reserve_tokens": 20,
+    "outstanding_tokens": 0,
+    "repayments_received": 0,
+    "delayed_tokens": 0,
+    "scheduled_repayments": [],
+    "completed_actions": []
+  },
+  "request_a_tokens": 30,
+  "request_b_tokens": 40,
+  "save_amount": 10,
+  "example_fee_percent": 10,
+  "actions": {
+    "save_tokens": {"label": "Add to group reserve"},
+    "approve_request_a": {"label": "Review request A"},
+    "approve_request_b": {"label": "Review request B"}
+  },
+  "events": [
+    {"event_type": "group_meeting", "payment_capacity": 0},
+    {"event_type": "external_disruption", "payment_capacity": 20},
+    {"event_type": "group_meeting", "payment_capacity": 15},
+    {"event_type": "supplier_delay", "payment_capacity": 0},
+    {"event_type": "group_meeting", "payment_capacity": 20},
+    {"event_type": "group_review", "payment_capacity": 30}
+  ],
+  "learning_objectives": [
+    "Distinguish the group pool from the amount available to lend.",
+    "Calculate a simple fictional percentage fee and total due.",
+    "Explain how a reserve changes the group's choices under uncertainty."
+  ],
+  "reflection_choices": {
+    "1": {"tag": "reserve-buffer", "label": "Reserve can cover a disruption"},
+    "2": {"tag": "reserve-opportunity-cost", "label": "Reserve funds cannot be lent now"},
+    "3": {"tag": "hint-requested", "label": "I need a hint"}
+  },
+  "hint_ladder": {
+    "en": [
+      "The group pool and the protected reserve are different amounts.",
+      "A loan adds a repayment due later; it is not new group income.",
+      "Compare amount lent, amount due and the event's payment capacity."
+    ],
+    "sw": [
+      "Mfuko na akiba iliyotengwa ni kiasi tofauti.",
+      "Mkopo huongeza malipo ya baadaye; si mapato mapya ya kikundi.",
+      "Linganisha mkopo, kiasi cha kulipa na uwezo wa tukio."
+    ]
+  },
+  "approved_actors": []
+}

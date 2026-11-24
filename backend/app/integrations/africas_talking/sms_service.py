@@ -63,12 +63,14 @@ def _safe_provider_message_id(value: Any) -> str | None:
 
 
 def _safe_sms_text(message: str) -> str:
-    """Remove common direct identifiers and enforce the single-segment SMS limit."""
+    """Remove direct identifiers, preserve menu line breaks, and enforce one SMS segment."""
     value = re.sub(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", "", message, flags=re.I)
     value = re.sub(r"\b[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\b", "", value, flags=re.I)
     value = re.sub(r"\+?\d[\d\s().-]{6,}\d", "", value)
     value = re.sub(r"\bgrade\s+\w+\b", "", value, flags=re.I)
-    value = " ".join(value.split())
+    normalized = value.replace("\r\n", "\n").replace("\r", "\n")
+    lines = [" ".join(line.split()) for line in normalized.split("\n")]
+    value = "\n".join(line for line in lines if line).strip()
     return value if len(value) <= 160 else f"{value[:157].rstrip()}..."
 
 
@@ -127,12 +129,21 @@ def send_sms(
     *,
     session_id: UUID | None = None,
     recipient_ref: str | None = None,
+    sender_id: str | None = None,
 ) -> SmsResult:
-    """Send one short sandbox SMS; never initialize the SDK at import time."""
+    """Send one short SMS in the configured Africa's Talking environment."""
     phone = recipient.strip()
     safe_recipient_ref = recipient_ref or sha256(phone.encode("utf-8")).hexdigest()
     if not phone or len(phone) > 32:
         result = SmsResult(status="failed", error_code="invalid_recipient")
+        _persist_delivery(result=result, recipient_ref=safe_recipient_ref, session_id=session_id)
+        return result
+
+    safe_sender_id = sender_id.strip() if sender_id else None
+    if safe_sender_id and (
+        len(safe_sender_id) > 32 or not re.fullmatch(r"[A-Za-z0-9+_.-]+", safe_sender_id)
+    ):
+        result = SmsResult(status="failed", error_code="invalid_sender_id")
         _persist_delivery(result=result, recipient_ref=safe_recipient_ref, session_id=session_id)
         return result
 
@@ -155,7 +166,10 @@ def send_sms(
 
             africastalking.initialize(settings.at_username or "sandbox", api_key)
             sms = africastalking.SMS
-        response = sms.send(safe_message, [phone])
+        if safe_sender_id:
+            response = sms.send(safe_message, [phone], sender_id=safe_sender_id)
+        else:
+            response = sms.send(safe_message, [phone])
         result = _provider_result(response)
     except Exception as error:
         result = SmsResult(

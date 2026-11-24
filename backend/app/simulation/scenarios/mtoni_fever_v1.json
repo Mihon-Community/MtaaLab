@@ -1,0 +1,55 @@
+{
+  "scenario_id": "mtoni_fever",
+  "rules_version": "mtoni-fever-v1",
+  "title": "Mtoni Fever Response",
+  "description": "Plan fictional community prevention and clinic readiness improvements with delayed effects.",
+  "grade_band": "Teacher assigned",
+  "turn_duration": {"value": 1, "unit": "community planning day"},
+  "number_of_turns": 6,
+  "units": {"budget": "fictional tokens", "access": "fictional points"},
+  "initial_state": {
+    "current_turn": 0,
+    "budget_tokens": 100,
+    "safe_water_points": 60,
+    "handwashing_points": 20,
+    "clinic_readiness": 20,
+    "pending_effects": [],
+    "completed_actions": []
+  },
+  "actions": {
+    "install_water_point": {"label": "Plan water point", "cost": 20, "delay_turns": 1},
+    "add_handwashing": {"label": "Add handwashing access", "cost": 15, "delay_turns": 1},
+    "improve_clinic_readiness": {"label": "Improve clinic readiness", "cost": 10, "delay_turns": 0}
+  },
+  "events": [
+    {"event_type": "planning_day", "message": "The community reviews access needs."},
+    {"event_type": "rain_disruption", "message": "A fictional rain event disrupts one planned activity.", "safe_water_delta": -5},
+    {"event_type": "school_meeting", "message": "The school asks how handwashing access will be maintained."},
+    {"event_type": "supply_delay", "message": "A fictional supply delivery arrives later than expected.", "safe_water_delta": 0},
+    {"event_type": "community_review", "message": "Community members compare prevention plans."},
+    {"event_type": "mission_review", "message": "The community reviews confirmed readiness changes."}
+  ],
+  "learning_objectives": [
+    "Explain why infrastructure improvements may have delayed effects.",
+    "Compare safe-water, handwashing and clinic-readiness trade-offs.",
+    "Use the event log to distinguish a game index from health data."
+  ],
+  "reflection_choices": {
+    "1": {"tag": "delayed-effect", "label": "Setup takes time"},
+    "2": {"tag": "instant-effect-misconception", "label": "I expected an instant effect"},
+    "3": {"tag": "hint-requested", "label": "I need a hint"}
+  },
+  "hint_ladder": {
+    "en": [
+      "Some plans take one turn before their index changes.",
+      "Water, handwashing and clinic readiness are separate measures.",
+      "Read the pending effects and the event for this turn."
+    ],
+    "sw": [
+      "Baadhi ya mipango huchukua zamu moja kuanza kuleta mabadiliko.",
+      "Maji, unawaji mikono na kliniki ni vipimo tofauti.",
+      "Soma athari zinazosubiri na tukio la zamu hii."
+    ]
+  },
+  "approved_actors": []
+}

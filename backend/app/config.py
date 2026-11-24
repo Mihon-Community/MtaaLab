@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     nvidia_api_key: str | None = None
     nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
     nvidia_model: str = "nvidia/nemotron-3.5-lightning-30b-a3b"
+    nvidia_sms_timeout_seconds: float = Field(default=5.0, ge=1.0, le=15.0)
     supabase_url: str | None = None
     supabase_jwks_url: str | None = None
     supabase_secret_key: str | None = None
@@ -26,6 +27,9 @@ class Settings(BaseSettings):
     at_api_key: str | None = None
     at_test_phone: str | None = None
     webhook_token: str | None = None
+    phone_hmac_secret: str | None = None
+    phone_encryption_key: str | None = None
+    mobile_join_code_pepper: str | None = None
     at_ussd_service_code: str = ""
     at_allowed_phones: str = ""
     rate_limit_per_minute: int = Field(default=60, ge=1, le=10_000)

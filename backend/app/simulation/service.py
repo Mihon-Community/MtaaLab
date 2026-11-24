@@ -20,11 +20,12 @@ from app.db.models import (
     ScenarioVersion,
     SimulationDecision,
     SimulationEvent,
+    SimulationReflection,
     SimulationSession,
     WorldStateSnapshot,
 )
 from app.db.repositories import MissionRepository, SimulationRepository
-from app.simulation import engine
+from app.simulation import engine, portfolio_engine
 from app.simulation.replay import replay_configuration
 from app.simulation.world_state import Action, Event, TurnResult, WorldState
 
@@ -64,13 +65,43 @@ def load_scenario() -> dict[str, Any]:
         return json.load(scenario_file)
 
 
+def load_versioned_scenario(rules_version: str) -> dict[str, Any]:
+    """Resolve immutable rules from the version stored on the published mission."""
+    if rules_version in {"mtoni-rules-v1", "placeholder-v1", "mtoni_v1"}:
+        return load_scenario()
+    return portfolio_engine.load_scenario(rules_version)
+
+
+def normalize_scenario_state(scenario: dict[str, Any], raw_state: dict[str, Any]) -> dict[str, Any]:
+    if scenario.get("scenario_id") == "mtoni":
+        return WorldState.model_validate(raw_state).model_dump(mode="json")
+    return portfolio_engine.normalize_state(scenario, raw_state)
+
+
+def public_state(scenario: dict[str, Any], state: dict[str, Any]) -> Any:
+    """Preserve the original Mtoni Python contract and expose generic game JSON as-is."""
+    normalized = normalize_scenario_state(scenario, state)
+    if scenario.get("scenario_id") == "mtoni":
+        return WorldState.model_validate(normalized)
+    return normalized
+
+
 class SimulationService:
     """Implement the simulation gateway against SQLAlchemy and PostgreSQL."""
 
     def __init__(self, session: Session, scenario: dict[str, Any] | None = None) -> None:
         self.db = session
         self.scenario = scenario or load_scenario()
+        self._scenario_override = scenario is not None
         self.repository = SimulationRepository(session)
+
+    def _scenario_for_version(self, version: ScenarioVersion) -> dict[str, Any]:
+        if self._scenario_override and self.scenario.get("scenario_id") == "mtoni":
+            return self.scenario
+        return load_versioned_scenario(getattr(version, "rules_version", "mtoni-rules-v1"))
+
+    def _scenario_for_session(self, row: SimulationSession) -> dict[str, Any]:
+        return self._scenario_for_version(self._scenario_version(row.mission_version_id))
 
     @contextmanager
     def _write_transaction(self) -> Iterator[None]:
@@ -84,9 +115,10 @@ class SimulationService:
             self.db.rollback()
             raise
 
-    @staticmethod
-    def _state_dict(raw_state: dict[str, Any]) -> dict[str, Any]:
-        return WorldState.model_validate(raw_state).model_dump(mode="json")
+    def _state_dict(
+        self, raw_state: dict[str, Any], scenario: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        return normalize_scenario_state(scenario or self.scenario, raw_state)
 
     @staticmethod
     def _event_model(raw_event: dict[str, Any], turn: int, rules_version: str) -> Event:
@@ -119,8 +151,8 @@ class SimulationService:
             raise PersistenceInvariantError("Session refers to a missing scenario version")
         return version
 
-    @staticmethod
     def _session_created_payload(
+        self,
         session_row: SimulationSession,
         version: ScenarioVersion,
         *,
@@ -132,7 +164,8 @@ class SimulationService:
             "mission_id": mission_id,
             "turn": session_row.current_turn,
             "status": session_row.status,
-            "state": WorldState.model_validate(session_row.current_state),
+            "scenario_id": self._scenario_for_version(version)["scenario_id"],
+            "state": public_state(self._scenario_for_version(version), session_row.current_state),
         }
         if parent_session_id is not None:
             payload["parent_session_id"] = parent_session_id
@@ -152,14 +185,20 @@ class SimulationService:
             raise MissionNotFoundError("Published mission not found")
         _, version = published
 
-        if version.version != 1 or self.scenario.get("scenario_id") != "mtoni":
+        try:
+            scenario = self._scenario_for_version(version)
+        except (LookupError, ValueError):
+            raise MissionNotFoundError(
+                "No backend scenario is configured for this mission version"
+            ) from None
+        if version.version < 1:
             raise MissionNotFoundError("No backend scenario is configured for this mission version")
         if idempotency_key is not None:
             existing = self.repository.get_created_by_key(user_id, version.id, idempotency_key)
             if existing is not None:
                 return self._session_created_payload(existing, version)
 
-        initial_state = self._state_dict(version.initial_state)
+        initial_state = self._state_dict(version.initial_state, scenario)
         current_turn = initial_state["current_turn"]
         row = SimulationSession(
             id=uuid4(),
@@ -169,6 +208,7 @@ class SimulationService:
             status="active",
             current_turn=current_turn,
             current_state=initial_state,
+            event_seed=int.from_bytes(sha256(uuid4().bytes).digest()[:4], "big"),
         )
         try:
             with self._write_transaction():
@@ -197,17 +237,22 @@ class SimulationService:
     def get_state(self, session_id: UUID, user_id: UUID) -> dict[str, Any]:
         row = self._authorized_session(session_id, user_id)
         version = self._scenario_version(row.mission_version_id)
+        scenario = self._scenario_for_version(version)
         return {
             "session_id": row.id,
             "mission_id": version.mission_id,
             "turn": row.current_turn,
             "status": row.status,
-            "state": WorldState.model_validate(row.current_state),
+            "scenario_id": scenario["scenario_id"],
+            "state": public_state(scenario, row.current_state),
         }
 
     def list_actions(self, session_id: UUID, user_id: UUID) -> list[dict[str, Any]]:
-        self._authorized_session(session_id, user_id)
-        actions = self.scenario.get("actions", {})
+        session = self._authorized_session(session_id, user_id)
+        scenario = self._scenario_for_session(session)
+        if scenario.get("scenario_id") != "mtoni":
+            return portfolio_engine.action_catalogue(scenario)
+        actions = scenario.get("actions", {})
         return [{"action_type": key, **value} for key, value in actions.items()]
 
     def _turn_result_from_storage(
@@ -216,7 +261,7 @@ class SimulationService:
         snapshot: WorldStateSnapshot,
         events: list[SimulationEvent],
         rules_version: str,
-    ) -> TurnResult:
+    ) -> Any:
         metadata = next(
             (event.payload for event in events if event.event_type == INTERNAL_TURN_METADATA),
             None,
@@ -233,25 +278,35 @@ class SimulationService:
             for event in events
             if event.event_type != INTERNAL_TURN_METADATA
         ]
-        return TurnResult.model_validate(
-            {
-                "turn": row.turn_number,
-                "accepted": True,
-                "action": {
-                    "action_type": row.action_type,
-                    "parameters": row.validated_parameters,
-                    "expected_turn": row.expected_turn,
-                },
-                "state": self._state_dict(snapshot.state),
-                "events": [event.model_dump(mode="json") for event in public_events],
-                "water_accounting": metadata["water_accounting"],
-                "idempotent_replay": True,
-            }
+        stored_result = {
+            "turn": row.turn_number,
+            "accepted": True,
+            "action": {
+                "action_type": row.action_type,
+                "parameters": row.validated_parameters,
+                "expected_turn": row.expected_turn,
+            },
+            "state": self._state_dict(snapshot.state, load_versioned_scenario(rules_version)),
+            "events": [event.model_dump(mode="json") for event in public_events],
+            "water_accounting": metadata["water_accounting"],
+            "idempotent_replay": True,
+        }
+        if metadata["water_accounting"] is not None:
+            return TurnResult.model_validate(stored_result)
+        from app.simulation.portfolio_engine import GameTurnResult
+
+        return GameTurnResult(
+            turn=row.turn_number,
+            accepted=True,
+            action=Action.model_validate(stored_result["action"]),
+            state=stored_result["state"],
+            events=public_events,
+            idempotent_replay=True,
         )
 
     def submit_decision(
         self, session_id: UUID, user_id: UUID, action: Action, idempotency_key: str
-    ) -> TurnResult:
+    ) -> Any:
         """Validate, calculate, and atomically commit one idempotent turn."""
         if not idempotency_key or len(idempotency_key) > 200:
             raise ValueError("Idempotency-Key must contain 1 to 200 characters")
@@ -259,6 +314,7 @@ class SimulationService:
         with self._write_transaction():
             session_row = self._authorized_session(session_id, user_id, for_update=True)
             version = self._scenario_version(session_row.mission_version_id)
+            scenario = self._scenario_for_version(version)
 
             # A retried committed request must win over expected_turn, which is stale by then.
             duplicate = self.repository.get_decision_by_key(session_id, idempotency_key)
@@ -279,18 +335,34 @@ class SimulationService:
             if session_row.status != "active":
                 raise SessionConflictError("Simulation session is not active")
 
-            prior_state = self._state_dict(session_row.current_state)
+            prior_state = self._state_dict(session_row.current_state, scenario)
             action_payload = action.model_dump(mode="json")
-            engine.validate_action(action_payload, prior_state, self.scenario)
-            raw_result = engine.calculate_next_state(prior_state, action_payload, self.scenario)
-            result = TurnResult.model_validate(raw_result)
+            if scenario.get("scenario_id") == "mtoni":
+                engine.validate_action(action_payload, prior_state, scenario)
+                raw_result = engine.calculate_next_state(prior_state, action_payload, scenario)
+                result = TurnResult.model_validate(raw_result)
+                result_state = result.state.model_dump(mode="json")
+                accounting = result.water_accounting.model_dump(mode="json")
+            else:
+                raw_result = portfolio_engine.calculate_next_state(
+                    prior_state, action, scenario, seed=int(getattr(session_row, "event_seed", 0))
+                )
+                result = portfolio_engine.GameTurnResult(
+                    turn=raw_result["turn"],
+                    accepted=True,
+                    action=action,
+                    state=raw_result["state"],
+                    events=[Event.model_validate(event) for event in raw_result["events"]],
+                )
+                result_state = result.state
+                accounting = None
             if result.turn != session_row.current_turn + 1:
                 raise PersistenceInvariantError("Engine returned a non-consecutive turn")
 
-            next_state = result.state.model_dump(mode="json")
+            next_state = result_state
             session_row.current_turn = result.turn
             session_row.current_state = next_state
-            if result.turn >= int(self.scenario["number_of_turns"]):
+            if result.turn >= int(scenario["number_of_turns"]):
                 session_row.status = "completed"
 
             decision = SimulationDecision(
@@ -315,15 +387,15 @@ class SimulationService:
                     )
                 )
 
-            # The existing schema has no result column; preserve the exact accounting data
-            # in an internal event so a duplicate idempotency key returns the original result.
+            # The existing schema has no result column; preserve nullable accounting so an
+            # idempotent retry can reconstruct either Mtoni or a portfolio-game response.
             self.db.add(
                 SimulationEvent(
                     id=uuid4(),
                     session_id=session_id,
                     turn_number=result.turn,
                     event_type=INTERNAL_TURN_METADATA,
-                    payload={"water_accounting": result.water_accounting.model_dump(mode="json")},
+                    payload={"water_accounting": accounting},
                     engine_version=version.rules_version,
                 )
             )
@@ -342,7 +414,8 @@ class SimulationService:
     def history(
         self, session_id: UUID, user_id: UUID, limit: int = 50, offset: int = 0
     ) -> dict[str, Any]:
-        self._authorized_session(session_id, user_id)
+        session_row = self._authorized_session(session_id, user_id)
+        scenario = self._scenario_for_session(session_row)
         bounded_limit = min(max(limit, 1), 100)
         bounded_offset = max(offset, 0)
         snapshots = self.repository.snapshots(session_id, bounded_limit, bounded_offset)
@@ -404,7 +477,7 @@ class SimulationService:
                         else None
                     ),
                     "events": public_events,
-                    "state": self._state_dict(snapshot.state),
+                    "state": self._state_dict(snapshot.state, scenario),
                     "state_hash": snapshot.state_hash,
                     "ai_feedback_status": ai_status_by_turn.get(snapshot.turn_number),
                 }
@@ -431,6 +504,7 @@ class SimulationService:
         with self._write_transaction():
             source = self._authorized_session(session_id, user_id, for_update=True)
             version = self._scenario_version(source.mission_version_id)
+            scenario = self._scenario_for_version(version)
             if idempotency_key is not None:
                 existing_replay = self.repository.get_replay_by_key(source.id, idempotency_key)
                 if existing_replay is not None:
@@ -439,9 +513,9 @@ class SimulationService:
                     )
             initial_snapshot = self.repository.get_snapshot(session_id, 0)
             initial_state = (
-                self._state_dict(initial_snapshot.state)
+                self._state_dict(initial_snapshot.state, scenario)
                 if initial_snapshot is not None
-                else self._state_dict(version.initial_state)
+                else self._state_dict(version.initial_state, scenario)
             )
             configuration = replay_configuration(
                 {
@@ -460,6 +534,7 @@ class SimulationService:
                 status="active",
                 current_turn=0,
                 current_state=configuration["initial_state"],
+                event_seed=int(getattr(source, "event_seed", 0)),
             )
             self.db.add(replay)
             self.db.flush()
@@ -473,3 +548,93 @@ class SimulationService:
                 )
             )
         return self._session_created_payload(replay, version, parent_session_id=source.id)
+
+    def record_reflection(
+        self, session_id: UUID, user_id: UUID, turn_number: int, answer_code: str
+    ) -> dict[str, Any]:
+        """Persist a choice-only reflection tied to a confirmed state snapshot."""
+        if answer_code not in {"1", "2", "3"}:
+            raise ValueError("Reflection answer is not available")
+        with self._write_transaction():
+            session_row = self._authorized_session(session_id, user_id, for_update=True)
+            if session_row.student_id != user_id:
+                raise SessionNotFoundError("Simulation session not found")
+            if turn_number < 1 or turn_number > session_row.current_turn:
+                raise StaleTurnError("Reflection must reference a confirmed turn")
+            version = self._scenario_version(session_row.mission_version_id)
+            scenario = self._scenario_for_version(version)
+            answer = scenario.get("reflection_choices", {}).get(answer_code)
+            if not isinstance(answer, dict) or not isinstance(answer.get("tag"), str):
+                raise ValueError("Reflection answer is not available")
+            existing = self.db.scalar(
+                select(SimulationReflection).where(
+                    SimulationReflection.session_id == session_id,
+                    SimulationReflection.turn_number == turn_number,
+                )
+            )
+            if existing is not None:
+                if existing.answer_code != answer_code:
+                    raise SessionConflictError(
+                        "A reflection has already been recorded for this turn"
+                    )
+                return {
+                    "session_id": session_id,
+                    "turn_number": turn_number,
+                    "answer_code": existing.answer_code,
+                    "misconception_tag": existing.misconception_tag,
+                    "accepted": True,
+                    "idempotent_replay": True,
+                }
+            snapshot = self.repository.get_snapshot(session_id, turn_number)
+            if snapshot is None:
+                raise PersistenceInvariantError("Reflection turn has no confirmed snapshot")
+            events = self.repository.events_for_turn(session_id, turn_number)
+            reflection = SimulationReflection(
+                id=uuid4(),
+                session_id=session_id,
+                turn_number=turn_number,
+                answer_code=answer_code,
+                misconception_tag=answer["tag"],
+                evidence={
+                    "state_hash": snapshot.state_hash,
+                    "event_types": [
+                        event.event_type
+                        for event in events
+                        if event.event_type != INTERNAL_TURN_METADATA
+                    ],
+                },
+            )
+            self.db.add(reflection)
+            self.db.flush()
+            return {
+                "session_id": session_id,
+                "turn_number": turn_number,
+                "answer_code": answer_code,
+                "misconception_tag": answer["tag"],
+                "accepted": True,
+                "idempotent_replay": False,
+            }
+
+    def get_reflection(
+        self, session_id: UUID, user_id: UUID, turn_number: int
+    ) -> dict[str, Any] | None:
+        """Return only the caller's own recorded choice for a confirmed turn."""
+        session_row = self._authorized_session(session_id, user_id)
+        if turn_number < 1 or turn_number > session_row.current_turn:
+            raise StaleTurnError("Reflection must reference a confirmed turn")
+        row = self.db.scalar(
+            select(SimulationReflection).where(
+                SimulationReflection.session_id == session_id,
+                SimulationReflection.turn_number == turn_number,
+            )
+        )
+        if row is None:
+            return None
+        return {
+            "session_id": session_id,
+            "turn_number": row.turn_number,
+            "answer_code": row.answer_code,
+            "misconception_tag": row.misconception_tag,
+            "accepted": True,
+            "idempotent_replay": True,
+        }

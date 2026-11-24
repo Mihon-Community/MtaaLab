@@ -25,6 +25,11 @@ class MissionListItem(APIModel):
     subject: str
     grade_band: str
     scenario_version: int
+    recommended: bool = False
+    recommendation_reason: str | None = None
+    last_session_id: UUID | None = None
+    last_session_status: str | None = None
+    current_turn: int = Field(default=0, ge=0)
 
 
 class MissionListResponse(APIModel):
@@ -40,6 +45,35 @@ class MissionDetailResponse(MissionListItem):
     units: dict[str, str]
     action_catalogue: list[dict[str, Any]]
     allocation_policies: list[dict[str, Any]]
+    plans: dict[str, Any] = Field(default_factory=dict)
+    reflection_choices: dict[str, dict[str, str]] = Field(default_factory=dict)
+    hint_ladder: dict[str, list[str]] = Field(default_factory=dict)
+
+
+class MobileJoinCodeRequest(APIModel):
+    class_id: UUID
+    student_id: UUID
+
+
+class MobileJoinCodeResponse(APIModel):
+    join_code: str
+    expires_at: str
+    message: str
+
+
+class MobileRosterLearner(APIModel):
+    student_id: UUID
+    display_name: str
+
+
+class MobileRosterClass(APIModel):
+    class_id: UUID
+    name: str
+    learners: list[MobileRosterLearner]
+
+
+class MobileRosterResponse(APIModel):
+    classes: list[MobileRosterClass]
 
 
 class CreateSimulationRequest(APIModel):
@@ -51,14 +85,16 @@ class SessionCreatedResponse(APIModel):
     mission_id: UUID
     turn: int = Field(ge=0)
     status: str
-    state: WorldState
+    scenario_id: str = "mtoni"
+    state: dict[str, Any] | WorldState
 
 
 class SessionStateResponse(APIModel):
     session_id: UUID
     turn: int = Field(ge=0)
     status: str
-    state: WorldState
+    scenario_id: str = "mtoni"
+    state: dict[str, Any] | WorldState
 
 
 class DecisionRequest(APIModel):
@@ -71,10 +107,12 @@ class DecisionResponse(APIModel):
     session_id: UUID
     turn: int = Field(ge=1)
     accepted: Literal[True] = True
-    state: WorldState
+    state: dict[str, Any] | WorldState
     events: list[Event]
-    water_accounting: WaterAccounting
-    ai_feedback_status: Literal["pending", "available", "ai_unavailable"] = "pending"
+    water_accounting: WaterAccounting | None = None
+    ai_feedback_status: Literal["pending", "available", "ai_unavailable", "not_requested"] = (
+        "pending"
+    )
 
 
 class AdvanceRequest(APIModel):
@@ -85,7 +123,7 @@ class HistoryEntry(APIModel):
     turn: int = Field(ge=0)
     action: dict[str, Any] | None = None
     events: list[Event] = Field(default_factory=list)
-    state: WorldState
+    state: dict[str, Any] | WorldState
     state_hash: str | None = None
     ai_feedback_status: str | None = None
 
@@ -104,6 +142,24 @@ class ReplayRequest(APIModel):
 
 class ReplayResponse(SessionCreatedResponse):
     parent_session_id: UUID
+
+
+class ReflectionRequest(APIModel):
+    turn_number: int = Field(ge=1)
+    answer_code: Literal["1", "2", "3"]
+
+
+class ReflectionResponse(APIModel):
+    session_id: UUID
+    turn_number: int = Field(ge=1)
+    answer_code: Literal["1", "2", "3"]
+    misconception_tag: str = Field(min_length=1, max_length=80)
+    accepted: Literal[True] = True
+    idempotent_replay: bool = False
+
+
+class ReflectionStatusResponse(APIModel):
+    reflection: ReflectionResponse | None = None
 
 
 class DebriefRequest(APIModel):
@@ -150,6 +206,20 @@ class SMSStatusCallbackRequest(APIModel):
     phone_number: str | None = Field(default=None, alias="phoneNumber", max_length=32)
     network_code: str | None = Field(default=None, alias="networkCode", max_length=64)
     failure_reason: str | None = Field(default=None, alias="failureReason", max_length=160)
+    retry_count: str | None = Field(default=None, alias="retryCount", max_length=16)
+
+
+class IncomingSMSCallbackRequest(APIModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    sender: str = Field(alias="from", min_length=6, max_length=32)
+    text: str = Field(max_length=500)
+    recipient: str | None = Field(default=None, alias="to", max_length=64)
+    provider_message_id: str | None = Field(default=None, alias="id", max_length=128)
+    link_id: str | None = Field(default=None, alias="linkId", max_length=128)
+    date: str | None = Field(default=None, max_length=64)
+    network_code: str | None = Field(default=None, alias="networkCode", max_length=64)
+    retry_count: str | None = Field(default=None, alias="retryCount", max_length=16)
 
 
 class USSDMenuResponse(APIModel):

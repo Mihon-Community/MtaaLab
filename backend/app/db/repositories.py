@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import false, select
+from sqlalchemy import false, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, aliased
 
@@ -27,6 +27,7 @@ from app.db.models import (
     SimulationSession,
     WorldStateSnapshot,
 )
+from app.simulation.mission_order import mission_order_key
 
 
 class ProfileRepository:
@@ -75,16 +76,45 @@ class MissionRepository:
 
     def list_published(self, user_id: UUID) -> list[Mission]:
         """List published missions assigned to one of the caller's school classes."""
-        query = (
-            select(Mission)
-            .where(
-                Mission.status == "published",
-                Mission.published_version_id.is_not(None),
-                Mission.id.in_(self._assigned_mission_ids(user_id)),
-            )
-            .order_by(Mission.title)
+        query = select(Mission).where(
+            Mission.status == "published",
+            Mission.published_version_id.is_not(None),
+            Mission.id.in_(self._assigned_mission_ids(user_id)),
         )
-        return list(self.session.scalars(query))
+        missions = list(self.session.scalars(query))
+        return sorted(missions, key=lambda mission: mission_order_key(mission.title))
+
+    def session_counts_by_mission(self, user_id: UUID) -> dict[UUID, int]:
+        """Return deterministic recommendation inputs without loading full session state."""
+        rows = self.session.execute(
+            select(ScenarioVersion.mission_id, func.count(SimulationSession.id))
+            .join(SimulationSession, SimulationSession.mission_version_id == ScenarioVersion.id)
+            .where(SimulationSession.student_id == user_id)
+            .group_by(ScenarioVersion.mission_id)
+        )
+        return {mission_id: int(count) for mission_id, count in rows}
+
+    def latest_sessions_by_mission(self, user_id: UUID) -> dict[UUID, dict[str, Any]]:
+        """Return the latest run per game for a student's resume/replay choices."""
+        rows = self.session.execute(
+            select(
+                ScenarioVersion.mission_id,
+                SimulationSession.id,
+                SimulationSession.status,
+                SimulationSession.current_turn,
+                SimulationSession.started_at,
+            )
+            .join(SimulationSession, SimulationSession.mission_version_id == ScenarioVersion.id)
+            .where(SimulationSession.student_id == user_id)
+            .order_by(SimulationSession.started_at.desc(), SimulationSession.id.desc())
+        )
+        latest: dict[UUID, dict[str, Any]] = {}
+        for mission_id, session_id, session_status, turn, _started_at in rows:
+            latest.setdefault(
+                mission_id,
+                {"session_id": session_id, "status": session_status, "current_turn": turn},
+            )
+        return latest
 
     def get_published(self, mission_id: UUID) -> tuple[Mission, ScenarioVersion] | None:
         mission = self.session.scalar(
@@ -263,15 +293,24 @@ class MobileSessionRepository:
         *,
         provider_session_id: str,
         phone_ref: str,
-        session_id: UUID,
+        session_id: UUID | None,
         current_menu: str,
         state: dict[str, Any],
         expires_at: datetime,
         last_request_key: str | None,
+        replace_session_id: bool = False,
     ) -> MobileSession:
-        """Insert callback state or update it while keeping its identity immutable."""
+        """Upsert state; phone identity stays fixed and SMS replay may replace its run."""
         if re.fullmatch(r"[a-f0-9]{64}", phone_ref) is None:
             raise ValueError("phone_ref must be a lowercase SHA-256 digest")
+        update_values = {
+            "current_menu": current_menu,
+            "state": state,
+            "expires_at": expires_at,
+            "last_request_key": last_request_key,
+        }
+        if replace_session_id:
+            update_values["session_id"] = session_id
         statement = (
             pg_insert(MobileSession)
             .values(
@@ -285,12 +324,7 @@ class MobileSessionRepository:
             )
             .on_conflict_do_update(
                 constraint="mobile_sessions_provider_session_id_key",
-                set_={
-                    "current_menu": current_menu,
-                    "state": state,
-                    "expires_at": expires_at,
-                    "last_request_key": last_request_key,
-                },
+                set_=update_values,
             )
             .returning(MobileSession)
         )

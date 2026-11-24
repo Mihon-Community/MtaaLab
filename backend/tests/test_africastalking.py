@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_simulation_gateway
+from app.api.schemas import USSDCallbackRequest
 from app.api.webhooks import get_webhook_store, router
 from app.config import settings
 from app.integrations.africas_talking import sms_service
@@ -22,6 +23,8 @@ from app.integrations.africas_talking.menu_state import (
     phone_reference,
     render_menu,
 )
+from app.integrations.africas_talking.mobile_gameplay import _phone_ref
+from app.integrations.africas_talking.ussd_callback import process_ussd_callback
 from app.simulation.service import load_scenario
 
 TEST_PHONE = "+254700000111"
@@ -33,6 +36,12 @@ class FakeStore:
     def __init__(self) -> None:
         self.student_id = uuid4()
         self.mission_id = uuid4()
+        self.missions = [
+            SimpleNamespace(id=uuid4(), title="Chama Trust Circle"),
+            SimpleNamespace(id=uuid4(), title="Mama Mboga Market"),
+            SimpleNamespace(id=uuid4(), title="Mtoni Fever Response"),
+            SimpleNamespace(id=self.mission_id, title="Mtoni water resilience"),
+        ]
         self.mapping_ref = phone_reference(TEST_PHONE)
         self.mobile: dict[str, SimpleNamespace] = {}
         self.sessions: dict[UUID, SimpleNamespace] = {}
@@ -55,8 +64,23 @@ class FakeStore:
         ]
         return active[-1] if active else None
 
+    def get_active_session_for_mission(
+        self, student_id: UUID, mission_id: UUID
+    ) -> SimpleNamespace | None:
+        active = [
+            session
+            for session in self.sessions.values()
+            if session.student_id == student_id
+            and session.mission_id == mission_id
+            and session.status == "active"
+        ]
+        return active[-1] if active else None
+
     def get_mtoni_mission_id(self, student_id: UUID) -> UUID | None:
         return self.mission_id if student_id == self.student_id else None
+
+    def get_published_missions(self, student_id: UUID) -> list[SimpleNamespace]:
+        return list(self.missions) if student_id == self.student_id else []
 
     def save_mobile(
         self,
@@ -68,11 +92,13 @@ class FakeStore:
         state: dict[str, object],
         expires_at: datetime,
         last_request_key: str,
+        replace_session_id: bool = False,
     ) -> None:
         existing = self.mobile.get(provider_session_id)
         if existing is not None:
             assert existing.phone_ref == phone_ref
-            assert existing.session_id == session_id
+            if not replace_session_id:
+                assert existing.session_id == session_id
         self.mobile[provider_session_id] = SimpleNamespace(
             provider_session_id=provider_session_id,
             phone_ref=phone_ref,
@@ -108,6 +134,9 @@ class FakeGateway:
     def get_or_create_session(
         self, mission_id: UUID, user_id: UUID, idempotency_key: str | None = None
     ) -> dict[str, object]:
+        active = self.store.get_active_session_for_mission(user_id, mission_id)
+        if active is not None:
+            return {"session_id": active.id, "state": active.state, "status": active.status}
         if idempotency_key in self.start_keys:
             session_id = self.start_keys[idempotency_key]
             session = self.store.sessions[session_id]
@@ -117,6 +146,7 @@ class FakeGateway:
         session = SimpleNamespace(
             id=session_id,
             student_id=user_id,
+            mission_id=mission_id,
             status="active",
             state=dict(self.scenario["initial_state"]),
         )
@@ -180,6 +210,7 @@ def webhook_app(monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, FakeStore,
     app.dependency_overrides[get_webhook_store] = lambda: store
     app.dependency_overrides[get_simulation_gateway] = lambda: gateway
     monkeypatch.setattr(settings, "webhook_token", WEBHOOK_TEST_TOKEN)
+    monkeypatch.setattr(settings, "at_ussd_service_code", SERVICE_CODE)
     monkeypatch.setattr("app.api.webhooks.enforce_webhook_rate_limit", lambda *args: None)
     return TestClient(app, headers={"X-Webhook-Token": WEBHOOK_TEST_TOKEN}), store, gateway
 
@@ -202,43 +233,259 @@ def test_first_dial_and_repeated_repair_confirmation_apply_once(
     client, store, gateway = webhook_app
 
     first = client.post("/api/webhooks/africastalking/ussd", data=ussd_body())
-    repair = client.post("/api/webhooks/africastalking/ussd", data=ussd_body("1"))
-    confirm = client.post("/api/webhooks/africastalking/ussd", data=ussd_body("1*1"))
+    selected = client.post("/api/webhooks/africastalking/ussd", data=ussd_body("1"))
+    confirmed = client.post("/api/webhooks/africastalking/ussd", data=ussd_body("1*1"))
     retry = client.post("/api/webhooks/africastalking/ussd", data=ussd_body("1*1"))
 
     assert (
-        first.status_code == repair.status_code == confirm.status_code == retry.status_code == 200
+        first.status_code
+        == selected.status_code
+        == confirmed.status_code
+        == retry.status_code
+        == 200
     )
-    assert first.text.startswith("CON Mtoni turn 0")
-    assert "costs 25 credits" in repair.text
-    assert "Decision recorded at turn 1" in confirm.text
-    assert retry.text == confirm.text
+    assert first.text == (
+        "CON Choose game\n1 Mtoni water resilience\n2 Mama Mboga Market\n"
+        "3 Mtoni Fever Response\n4 Chama Trust Circle\n0 Back"
+    )
+    assert selected.text.startswith("CON Mtoni water resilience 0/6")
+    assert "Turn saved 1" in confirmed.text
+    assert "budget 75" in confirmed.text
+    assert "5 Choose another game" not in confirmed.text
+    assert retry.text == confirmed.text
+    assert len(confirmed.text) <= 160
     assert len(gateway.decisions) == 1
     assert gateway.decisions[0][1] == "repair_main_pipe"
     assert gateway.decisions[0][2] == {}
     mobile = store.mobile["provider-session-1"]
-    assert mobile.phone_ref == phone_reference(TEST_PHONE)
+    assert mobile.phone_ref == _phone_ref(TEST_PHONE)
     assert TEST_PHONE not in str(mobile.state)
+
+
+def test_final_ussd_turn_queues_one_sms_summary() -> None:
+    store = FakeStore()
+    gateway = FakeGateway(store)
+    gateway.scenario["initial_state"]["current_turn"] = 5
+    background = FakeBackgroundTasks()
+
+    first = process_ussd_callback(
+        USSDCallbackRequest.model_validate(ussd_body()),
+        store=store,
+        gateway=gateway,
+        background_tasks=background,
+    )
+    selected = process_ussd_callback(
+        USSDCallbackRequest.model_validate(ussd_body("1")),
+        store=store,
+        gateway=gateway,
+        background_tasks=background,
+    )
+    completed = process_ussd_callback(
+        USSDCallbackRequest.model_validate(ussd_body("1*1")),
+        store=store,
+        gateway=gateway,
+        background_tasks=background,
+    )
+
+    assert first.response.startswith("CON Choose game")
+    assert selected.response.startswith("CON Mtoni water resilience 5/6")
+    assert completed.completed is True
+    assert completed.response.startswith("END Game complete.")
+    assert len(background.tasks) == 1
+    function, args, kwargs = background.tasks[0]
+    assert function is sms_service.send_sms
+    assert args[0] == TEST_PHONE
+    assert "Mtoni water resilience complete" in str(args[1])
+    assert kwargs["recipient_ref"] == _phone_ref(TEST_PHONE)
+
+
+def test_root_ussd_callback_accepts_query_token_and_rejects_wrong_url_token(
+    webhook_app: tuple[TestClient, FakeStore, FakeGateway],
+) -> None:
+    client, _, _ = webhook_app
+    query_client = TestClient(client.app, headers={"X-Webhook-Token": "wrong-header-token"})
+
+    accepted = query_client.post(f"/ussd?token={WEBHOOK_TEST_TOKEN}", data=ussd_body())
+    rejected = client.post("/ussd?token=wrong-query-token", data=ussd_body("1"))
+
+    assert accepted.status_code == 200
+    assert accepted.text.startswith("CON Choose game")
+    assert rejected.status_code == 401
+
+
+def test_incoming_sms_callback_returns_help_reply_with_url_token(
+    webhook_app: tuple[TestClient, FakeStore, FakeGateway],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, _, _ = webhook_app
+    query_client = TestClient(client.app)
+    sent: list[tuple[str, str, dict[str, object]]] = []
+    monkeypatch.setattr(
+        "app.api.webhooks.send_sms",
+        lambda recipient, message, **kwargs: sent.append((recipient, message, kwargs)),
+    )
+
+    accepted = query_client.post(
+        f"/webhook/incoming?token={WEBHOOK_TEST_TOKEN}",
+        data={
+            "from": TEST_PHONE,
+            "to": "12345",
+            "text": " help ",
+            "id": "message-1",
+            "linkId": "link-1",
+            "date": "2026-11-24 12:00:00",
+        },
+    )
+    rejected = client.post(
+        "/webhook/incoming?token=wrong-query-token",
+        data={"from": TEST_PHONE, "text": "HELLO"},
+    )
+
+    assert accepted.status_code == 200
+    assert accepted.json() == {"status": "accepted"}
+    assert len(sent[0][1]) <= 160
+    assert sent == [
+        (
+            TEST_PHONE,
+            "MtaaLab commands\nJOIN <code>: link phone\nGAMES: list games\n"
+            "PLAY <n>: start\nCONTINUE: resume\nOPT IN: reminders\nSTOP: reminders off",
+            {
+                "session_id": None,
+                "recipient_ref": phone_reference(TEST_PHONE),
+                "sender_id": "12345",
+            },
+        )
+    ]
+    assert rejected.status_code == 401
+
+
+def test_sms_can_start_and_play_mtoni_using_the_shared_saved_session(
+    webhook_app: tuple[TestClient, FakeStore, FakeGateway],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, store, gateway = webhook_app
+    sent: list[tuple[str, str, dict[str, object]]] = []
+    monkeypatch.setattr(
+        "app.api.webhooks.send_sms",
+        lambda recipient, message, **kwargs: sent.append((recipient, message, kwargs)),
+    )
+
+    def incoming(text: str, message_id: str):
+        return client.post(
+            f"/webhook/incoming?token={WEBHOOK_TEST_TOKEN}",
+            data={"from": TEST_PHONE, "text": text, "id": message_id},
+        )
+
+    ussd_list = client.post("/api/webhooks/africastalking/ussd", data=ussd_body())
+    ussd = client.post("/api/webhooks/africastalking/ussd", data=ussd_body("1"))
+    game_list = incoming("PLAY", "sms-message-1")
+    started = incoming("PLAY 1", "sms-message-2")
+    confirmed = incoming("1", "sms-message-3")
+    duplicate = incoming("1", "sms-message-3")
+
+    sms_session = store.mobile[f"sms:{_phone_ref(TEST_PHONE)}"].session_id
+    ussd_session = store.mobile["provider-session-1"].session_id
+    assert ussd_list.status_code == ussd.status_code == game_list.status_code == 200
+    assert started.status_code == 200
+    assert confirmed.status_code == duplicate.status_code == 200
+    assert "Games:" in sent[0][1]
+    assert "Mtoni water resilience 0/6" in sent[1][1]
+    assert "Turn saved 1" in sent[2][1]
+    assert gateway.store.sessions[sms_session].state["current_turn"] == 1
+    assert sms_session == ussd_session
+    assert gateway.decisions[-1][3].startswith("mobile:sms:")
+    assert len(gateway.decisions) == 1
+
+
+def test_sms_text_requires_play_before_starting_and_uses_short_replies(
+    webhook_app: tuple[TestClient, FakeStore, FakeGateway],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, store, _ = webhook_app
+    sent: list[str] = []
+    monkeypatch.setattr(
+        "app.api.webhooks.send_sms",
+        lambda recipient, message, **kwargs: sent.append(message),
+    )
+    response = client.post(
+        f"/webhook/incoming?token={WEBHOOK_TEST_TOKEN}",
+        data={"from": TEST_PHONE, "text": "1", "id": "sms-before-play"},
+    )
+
+    assert response.status_code == 200
+    assert "text GAMES or PLAY" in sent[0]
+    assert not store.mobile
+
+
+def test_sms_play_restarts_an_ended_run_on_the_same_phone(
+    webhook_app: tuple[TestClient, FakeStore, FakeGateway],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, store, gateway = webhook_app
+    old = gateway.get_or_create_session(store.mission_id, store.student_id, "old-sms-run")
+    old_session_id = old["session_id"]
+    gateway.store.sessions[old_session_id].status = "completed"
+    mobile_id = f"sms:{_phone_ref(TEST_PHONE)}"
+    store.save_mobile(
+        provider_session_id=mobile_id,
+        phone_ref=_phone_ref(TEST_PHONE),
+        session_id=old_session_id,
+        current_menu="ended",
+        state={"screen": "ended", "recent_requests": []},
+        expires_at=datetime.now(UTC) + timedelta(days=2),
+        last_request_key="old-request",
+    )
+    sent: list[str] = []
+    monkeypatch.setattr(
+        "app.api.webhooks.send_sms",
+        lambda recipient, message, **kwargs: sent.append(message),
+    )
+
+    response = client.post(
+        f"/webhook/incoming?token={WEBHOOK_TEST_TOKEN}",
+        data={"from": TEST_PHONE, "text": "PLAY 1", "id": "new-sms-run"},
+    )
+
+    new_session_id = store.mobile[mobile_id].session_id
+    assert response.status_code == 200
+    assert new_session_id != old_session_id
+    assert gateway.store.sessions[new_session_id].state["current_turn"] == 0
+    assert "Mtoni water resilience 0/6" in sent[0]
+
+
+def test_incoming_sms_callback_rejects_missing_or_invalid_sender(
+    webhook_app: tuple[TestClient, FakeStore, FakeGateway],
+) -> None:
+    client, _, _ = webhook_app
+    missing_sender = client.post(
+        "/webhook/incoming?token=test-webhook-token", data={"text": "HELP"}
+    )
+    invalid_sender = client.post(
+        "/webhook/incoming?token=test-webhook-token",
+        data={"from": "not-a-number", "text": "HELP"},
+    )
+
+    assert missing_sender.status_code == invalid_sender.status_code == 400
 
 
 def test_cancel_invalid_input_and_exit_are_short_and_safe(
     webhook_app: tuple[TestClient, FakeStore, FakeGateway],
 ) -> None:
     client, _, gateway = webhook_app
-    client.post("/api/webhooks/africastalking/ussd", data=ussd_body())
-    confirm = client.post("/api/webhooks/africastalking/ussd", data=ussd_body("1"))
-    canceled = client.post("/api/webhooks/africastalking/ussd", data=ussd_body("1*2"))
+    game_list = client.post("/api/webhooks/africastalking/ussd", data=ussd_body())
+    selected = client.post("/api/webhooks/africastalking/ussd", data=ussd_body("1"))
+    action = client.post("/api/webhooks/africastalking/ussd", data=ussd_body("1*2"))
     invalid = client.post("/api/webhooks/africastalking/ussd", data=ussd_body("1*2*9"))
     exited = client.post("/api/webhooks/africastalking/ussd", data=ussd_body("1*2*0"))
 
-    assert "costs 25 credits" in confirm.text
-    assert canceled.text.startswith("CON Mtoni turn 0")
-    assert "Invalid choice." in invalid.text
-    assert "Repair" in invalid.text
-    assert exited.text.startswith("END ")
-    assert "sandbox demo" in exited.text
-    assert gateway.decisions == []
-    assert all(len(item.text) <= 160 for item in (confirm, canceled, invalid, exited))
+    assert game_list.text.startswith("CON Choose game")
+    assert selected.text.startswith("CON Mtoni water resilience 0/6")
+    assert action.text.startswith("CON Turn saved 1")
+    assert invalid.text.startswith("CON Why?\n1 ")
+    assert "0 Menu" in invalid.text
+    assert exited.text.startswith("CON MtaaLab")
+    assert len(gateway.decisions) == 1
+    assert all(len(item.text) <= 160 for item in (game_list, selected, action, invalid, exited))
 
 
 def test_conservation_and_allocation_use_configured_presets(
@@ -246,38 +493,29 @@ def test_conservation_and_allocation_use_configured_presets(
 ) -> None:
     client, _, gateway = webhook_app
     client.post("/api/webhooks/africastalking/ussd", data=ussd_body())
-    conservation = client.post("/api/webhooks/africastalking/ussd", data=ussd_body("2"))
-    client.post("/api/webhooks/africastalking/ussd", data=ussd_body("2*1"))
-    assert "costs 15 credits" in conservation.text
-    assert gateway.decisions[0][1:] == (
-        "conservation_campaign",
-        {"household_reduction_ratio": 0.1},
-        "ussd:provider-session-1:2",
-    )
+    client.post("/api/webhooks/africastalking/ussd", data=ussd_body("1"))
+    conservation = client.post("/api/webhooks/africastalking/ussd", data=ussd_body("1*2"))
+    assert "Turn saved 1" in conservation.text
+    assert gateway.decisions[0][1] == "conservation_campaign"
+    assert gateway.decisions[0][2] == {"household_reduction_ratio": 0.1}
 
     # A new provider session reuses the active simulation but has its own menu state.
     client.post(
         "/api/webhooks/africastalking/ussd",
         data=ussd_body("", sessionId="provider-session-2"),
     )
+    select_mtoni = client.post(
+        "/api/webhooks/africastalking/ussd",
+        data=ussd_body("1", sessionId="provider-session-2"),
+    )
     allocation = client.post(
         "/api/webhooks/africastalking/ussd",
-        data=ussd_body("3", sessionId="provider-session-2"),
+        data=ussd_body("1*3", sessionId="provider-session-2"),
     )
-    confirm_policy = client.post(
-        "/api/webhooks/africastalking/ussd",
-        data=ussd_body("3*2", sessionId="provider-session-2"),
-    )
-    submitted = client.post(
-        "/api/webhooks/africastalking/ussd",
-        data=ussd_body("3*2*1", sessionId="provider-session-2"),
-    )
-    assert allocation.text.startswith("CON Allocation policy:")
-    assert "cost 0 credits" in confirm_policy.text
-    assert submitted.text.startswith("CON Decision recorded")
+    assert select_mtoni.text.startswith("CON Mtoni water resilience 1/6")
+    assert allocation.text.startswith("CON Turn saved 2")
     assert gateway.decisions[-1][1] == "change_allocation"
-    assert gateway.decisions[-1][2] == {"policy_id": "household_focus"}
-    assert gateway.decisions[-1][3] == "ussd:provider-session-2:3"
+    assert gateway.decisions[-1][2] == {"policy_id": "balanced"}
 
 
 def test_expired_menu_restarts_before_action_submission(
@@ -286,16 +524,16 @@ def test_expired_menu_restarts_before_action_submission(
     client, store, gateway = webhook_app
     first = client.post("/api/webhooks/africastalking/ussd", data=ussd_body())
     mobile = store.mobile["provider-session-1"]
-    mobile.state = {"screen": "confirm_repair", "decision_step": 1}
-    mobile.current_menu = "confirm_repair"
+    mobile.state = {"screen": "turn", "mobile_v2": True, "language": "en"}
+    mobile.current_menu = "turn"
     mobile.expires_at = datetime.now(UTC) - timedelta(seconds=1)
 
     restarted = client.post("/api/webhooks/africastalking/ussd", data=ussd_body("1"))
 
-    assert first.text.startswith("CON Mtoni turn 0")
-    assert "costs 25 credits" in restarted.text
+    assert first.text.startswith("CON Choose game")
+    assert restarted.text.startswith("CON Choose game")
     assert gateway.decisions == []
-    assert store.mobile["provider-session-1"].current_menu == "confirm_repair"
+    assert store.mobile["provider-session-1"].current_menu == "games"
 
 
 def test_invalid_callback_and_wrong_service_code_return_contract_statuses(
@@ -419,6 +657,7 @@ def test_sms_status_callback_upserts_without_storing_phone(
             "status": "Success",
             "phoneNumber": TEST_PHONE,
             "failureReason": "Invalid phone number",
+            "retryCount": "0",
         },
     )
     retry = client.post(
@@ -465,6 +704,23 @@ def test_sms_status_keeps_known_errors_and_provider_codes_only(
     assert store.delivery_status["free-text"]["error_code"] is None
 
 
+def test_sandbox_sms_helper_refuses_live_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from scripts import send_test_sms
+
+    monkeypatch.setattr(send_test_sms.settings, "at_username", "live-app")
+    monkeypatch.setattr(
+        send_test_sms,
+        "send_mission_sms",
+        lambda *_args, **_kwargs: pytest.fail("sandbox helper attempted a live SMS"),
+    )
+
+    assert send_test_sms.main() == 2
+    assert "sandbox-only" in capsys.readouterr().out
+
+
 def test_missing_sms_key_returns_not_configured_and_warns_once(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -484,6 +740,15 @@ def test_missing_sms_key_returns_not_configured_and_warns_once(
     assert TEST_PHONE not in caplog.text
 
 
+def test_sms_sanitizer_preserves_menu_line_breaks_and_collapses_spacing() -> None:
+    message = "Games:\r\n1   Mtoni water\r\n\r\n2 Soko\r\nReply PLAY n"
+
+    safe = sms_service._safe_sms_text(message)
+
+    assert safe == "Games:\n1 Mtoni water\n2 Soko\nReply PLAY n"
+    assert len(safe) <= 160
+
+
 def test_sms_sdk_is_lazy_and_logs_no_key_or_phone(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -493,9 +758,12 @@ def test_sms_sdk_is_lazy_and_logs_no_key_or_phone(
 
     class FakeSMS:
         @staticmethod
-        def send(message: str, recipients: list[str]) -> dict[str, object]:
+        def send(
+            message: str, recipients: list[str], sender_id: str | None = None
+        ) -> dict[str, object]:
             assert len(message) <= 160
             assert recipients == [TEST_PHONE]
+            assert sender_id == "12345"
             return {
                 "SMSMessageData": {
                     "Recipients": [
@@ -518,9 +786,10 @@ def test_sms_sdk_is_lazy_and_logs_no_key_or_phone(
 
     assert calls == []
     with caplog.at_level(logging.INFO):
-        result = sms_service.send_mission_sms(
+        result = sms_service.send_sms(
             TEST_PHONE,
-            summary="Grade 7 learner completed. Review the report online.",
+            "MtaaLab reply",
+            sender_id="12345",
         )
 
     assert result.status == "sent"

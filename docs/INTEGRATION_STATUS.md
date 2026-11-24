@@ -1,64 +1,51 @@
-# Backend integration status
+# Integration status
 
-Date: 2026-11-24
+Date: 2026-11-24 (Africa/Nairobi)
 
-## Verification
+## Implemented
+
+- Four deterministic, versioned games are available: Mtoni Water Resilience, Soko Market, Mtoni Fever Response, and Chama Trust Circle. Availability is teacher/class assigned; no game is restricted to a particular grade.
+- Learners can play through the web app, SMS, or USSD. A teacher issues one-time phone-link codes from `/teacher`; SMS, USSD, and web continue the same saved learner run.
+- SMS and USSD include English and Kiswahili menus, saved decisions, reflection prompts, resume commands, duplicate-callback protection, and bounded response lengths.
+- Optional resume nudges require explicit `OPT IN`; `STOP`/`ACHA` removes stored phone ciphertext while leaving gameplay available.
+- Docker Compose starts the API, frontend, and mobile-nudge worker with `docker compose up --build`.
+
+## Verification completed
 
 | Check | Result |
 |---|---|
-| Complete non-NVIDIA backend suite in a disposable Docker network runner | 83 passed, 1 optional NVIDIA test deselected. This includes the live PostgreSQL persistence, replay/idempotency, concurrent-turn, and RLS checks. Synthetic rows were cleaned up. |
-| Backend unit and API tests on the host runner | 79 passed; database integration tests were excluded because that runner cannot establish the Supabase connection. |
-| Optional NVIDIA NIM smoke test | 1 passed with one bounded, non-identifying request. |
-| Africa's Talking callback unit tests | 14 passed. |
-| Rubric registry tests | 2 passed. |
-| Ruff lint and formatting | Passed. |
-| Docker backend rebuild and health check | Rebuilt; `GET /api/health` returned 200 and the backend container was healthy. |
-| Africa's Talking SMS sandbox | Multiple manual sends returned `sent`; three matching delivery-log records are present. This is provider acceptance, not confirmation of handset delivery. |
-| USSD callback through the public tunnel | Four authenticated requests completed: dial menu, repair confirmation, one persisted turn, and duplicate retry. Each returned HTTP 200; the duplicate returned the stored response and did not apply a second decision. The generated test simulation was removed. |
+| Backend test suite | 100 passed, 4 skipped. Skipped cases need direct database access from the host runner. |
+| Backend static checks | Ruff lint passed; all 80 Python files formatted; Python compile check passed. |
+| Frontend checks | 1 test passed; ESLint, Prettier, TypeScript typecheck, and production build passed. |
+| Frontend dependency audit | 0 reported vulnerabilities after updating compatible pinned dependencies. |
+| Docker Compose rebuild | Backend and frontend rebuilt. Backend and frontend health checks are healthy; nudge worker is running. |
+| Live API check | Health returned `ok`; `/ussd`, `/webhook/incoming`, `/api/mobile/classes`, and `/api/mobile/join-codes` are registered. |
+| Mobile privacy smoke | Passed code redemption, same-phone retry, encrypted opt-in, `STOP` cleanup, and temporary-row cleanup using the seeded synthetic learner. It does not send a text. |
+| Supabase | Migrations `0001`–`0009` are applied. Four missions are teacher-assigned; the three added games are assigned to the synthetic demo class. The mobile smoke removed its temporary rows. |
+| SMS and USSD callbacks | Africa's Talking SMS/USSD callbacks reached the app. ngrok history includes older 404s from before the current routes were deployed; current routes return 200. |
+| SMS delivery report | Fixed the strict status schema to accept Africa's Talking's `retryCount` field. A provider retry now receives HTTP 200. |
+| Outbound SMS | Test request was accepted (`sent`), but the provider's final sandbox report was `Failed` / `DeliveryFailure`. |
 
-The configured public tunnel is reachable. A request without the webhook token receives `401`, so the current ngrok process does not inject `WEBHOOK_TOKEN`. `backend/scripts/start-ngrok.ps1` now prepares a temporary path-scoped Traffic Policy from the single root `.env`; its `-ValidateOnly` mode passed. The real Africa's Talking simulator was not started because the active tunnel needs to be restarted with that policy and the provider dashboard callback must point to the tunnel URL.
+## Africa's Talking testing
 
-One local cold-start callback took about 11.8 seconds; the other measured local callbacks ranged from about 1.4 to 5.3 seconds. SQL instrumentation on one new-session callback observed 14 statements totaling about 3.2 seconds. The USSD path was reduced to avoid repeated session/state reads. Supabase response time varies between calls, so these measurements are a development baseline rather than a production latency guarantee.
+This project is configured for the Africa's Talking sandbox. Sandbox SMS goes to the web simulator, not a physical handset. A sandbox `DeliveryFailure` can mean the simulator is not logged in or is unreachable; see Africa's Talking's [sandbox instructions](https://help.africastalking.com/en/articles/1170660-how-do-i-get-started-on-the-africa-s-talking-sandbox) and [delivery failure guidance](https://help.africastalking.com/en/articles/742491-why-did-my-messages-fail). A `sent` response means provider acceptance, not handset delivery; only a final `Success`/`Delivered` status confirms delivery ([status definitions](https://help.africastalking.com/en/articles/16150386-messaging-error-codes)).
 
-## Acceptance coverage
+### Test in the sandbox simulator
 
-| ID | Status | Evidence / limit |
-|---|---|---|
-| SIM-01 | Pass | Deterministic same-input unit coverage. |
-| SIM-02 | Pass | Unaffordable action is rejected without state mutation. |
-| SIM-03 | Pass | Out-of-range action parameters are rejected. |
-| SIM-04 | Pass | Water accounting invariants, including six-turn sequences. |
-| SIM-05 | Pass | Live PostgreSQL decision idempotency and stored retry result. |
-| SIM-06 | Pass | Live concurrent-turn integration case. |
-| AI-01 | Pass | Malformed model output uses the static fallback. |
-| AI-02 | Pass | Unsupported fact references are rejected to fallback. |
-| AI-03 | Pass | Missing-key and timeout fallback paths pass; the optional live NIM smoke test also passed. |
-| DB-01 | Pass | Live API-to-PostgreSQL integration flow and session ownership checks. |
-| DB-02 | Pass, manual | Supabase RLS was previously checked with an `anon` write attempt and denied. Automated host-runner DB check cannot connect from this environment. |
-| AT-01 | Application flow pass; provider simulator pending | Public tunnel callback flow applies one valid turn and deduplicates a retry. The Africa's Talking simulator itself still needs a dashboard-configured callback and ngrok header injection. |
-| AT-02 | Partial | Sandbox SMS API returned `sent` repeatedly and logs provider outcomes. No handset delivery was confirmed. |
-| AT-03 | Pass, mocked | Missing API key returns `not_configured` without raising. |
-| MOB-01 | Backend pass; frontend out of scope | USSD duplicate and persistence paths pass. Browser offline/reconnect behavior belongs to the frontend. |
-| REP-01 | Pass | Live replay integration preserves the source run and initial state. |
+1. Start services from the repository root with `docker compose up --build`; keep the computer and ngrok tunnel running.
+2. Set the Africa's Talking USSD callback to `<PUBLIC_BASE_URL>/ussd?token=<WEBHOOK_TOKEN>` and incoming SMS callback to `<PUBLIC_BASE_URL>/webhook/incoming?token=<WEBHOOK_TOKEN>`. Set the optional delivery-report callback to `<PUBLIC_BASE_URL>/api/webhooks/africastalking/sms-status?token=<WEBHOOK_TOKEN>`.
+3. Open the Africa's Talking sandbox simulator, log in, and register the test number there. If `AT_ALLOWED_PHONES` is nonempty, include that number in the sandbox allowlist.
+4. Sign into `/teacher`, choose a class and learner, and issue a one-time link code. Send `JOIN <code>` in the simulator's SMS inbox or enter it in the USSD simulator.
+5. For SMS, send `GAMES`, then `PLAY 1`. Send `HELP` for commands, `CONTINUE` to resume, and numbered choices to continue a turn. On USSD, select a game and follow the numbered prompts. SMS and USSD share the learner's saved state.
+6. Confirm the simulator displays the outbound reply and the callback returns 200. Sandbox SMS is not delivered to physical phones.
 
-## Supabase state and owner tasks
+### Test on an actual handset
 
-Migrations `0001`–`0006` are applied. The synthetic Mtoni mission is assigned to its demo class. The phone map stores only a SHA-256 reference, and the temporary USSD and integration-test rows created during this pass were removed.
+Use Africa's Talking Live credentials in the root `.env`: set `AT_USERNAME` to the Live app username and `AT_API_KEY` to that app's Live key. Sandbox and Live keys are separate. The Live account also needs an approved sender ID or shortcode, available balance, Live callback URLs, and a real test number in `AT_ALLOWED_PHONES`. Live messages can incur charges. Test by playing through SMS from the handset; the sandbox-only test-message helper must not be used with Live credentials.
 
-The Mtoni scenario values remain marked as placeholders pending team review. Do not use them as approved classroom curriculum or realistic hydrology data until the owner reviews the values and objectives. Supabase's leaked-password protection remains an Auth Dashboard setting, and the database password still needs owner rotation and an update in the local root `.env`.
+## Remaining launch requirements
 
-LTI 1.3 is explicitly a later phase in the project specification; the prototype's launch context is simulated. Teacher progress aggregation is also outside the current API contract; the backend exposes assignment-scoped missions and learner reports. These items need product-owner scope before adding new APIs.
-
-## Africa's Talking setup still needed for a provider-originated USSD session
-
-1. Keep Docker running and stop the existing ngrok tunnel with Ctrl+C.
-2. From the repository root, start the tunnel with the root `.env` token policy:
-
-   ```powershell
-   powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\backend\scripts\start-ngrok.ps1
-   ```
-
-3. In the Africa's Talking dashboard, set the sandbox service-code callback to `<PUBLIC_BASE_URL>/api/webhooks/africastalking/ussd`. Put the exact sandbox service code in `AT_USSD_SERVICE_CODE` and the test phone in `AT_ALLOWED_PHONES` in the root `.env` before restarting Docker.
-4. Keep the computer awake while using the Africa's Talking simulator. Its real callback flow still needs a provider-side test.
-
-No `.env` values or provider credentials are committed to this branch.
+- Verify final SMS delivery to a real handset with Live credentials and an approved sender ID/shortcode.
+- Kiswahili translations and learning objectives need review by a fluent educator and classroom teacher.
+- The app does not collect guardian details or record guardian authorization. Before using real minors, the organization must determine lawful basis, school/guardian authorization, retention, deletion, and any data-transfer requirements with its data-protection lead; see [Kenya ODPC data-protection resources](https://www.odpc.go.ke/data-protection-laws-kenya/).
+- Supabase's existing Auth leaked-password-protection recommendation remains a dashboard setting. Credentials shared during setup should be rotated before production use.

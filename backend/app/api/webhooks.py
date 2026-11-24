@@ -14,22 +14,25 @@ from pydantic import BaseModel, ValidationError
 
 from app.api.dependencies import get_simulation_gateway
 from app.api.schemas import (
+    IncomingSMSCallbackRequest,
     SMSStatusCallbackRequest,
     USSDCallbackRequest,
     WebhookAckResponse,
 )
 from app.config import settings
 from app.integrations.africas_talking.menu_state import allowed_phone, phone_reference
+from app.integrations.africas_talking.sms_service import send_sms
 from app.integrations.africas_talking.ussd_callback import (
     WebhookStore,
     get_webhook_store,
+    process_sms_game_message,
     process_ussd_callback,
 )
 from app.security.webhook_rate_limit import enforce_webhook_rate_limit
 from app.simulation.gateway import SimulationGateway
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/webhooks/africastalking", tags=["Africa's Talking"])
+router = APIRouter(tags=["Africa's Talking"])
 PayloadT = TypeVar("PayloadT", bound=BaseModel)
 MAX_FORM_BYTES = 4096
 
@@ -77,8 +80,8 @@ def _caller_host(request: Request) -> str:
     return client.host[:128] if client and client.host else "unknown-client"
 
 
-def _require_webhook_token(request: Request) -> None:
-    """Authenticate provider callbacks with the configured shared token."""
+def _require_webhook_token(request: Request, *, allow_legacy_header: bool = True) -> None:
+    """Authenticate callbacks using the configured URL token or legacy header."""
     expected = (settings.webhook_token or "").strip()
     if not expected:
         raise HTTPException(
@@ -86,12 +89,20 @@ def _require_webhook_token(request: Request) -> None:
             detail="Webhook authentication is not configured",
         )
 
-    supplied = request.headers.get("x-webhook-token", "")
-    if not supplied:
-        authorization = request.headers.get("authorization", "")
-        scheme, separator, credential = authorization.partition(" ")
-        if separator and scheme.lower() == "bearer":
-            supplied = credential.strip()
+    query_tokens = request.query_params.getlist("token")
+    if query_tokens:
+        # A supplied query token takes precedence; do not let a tunnel-injected
+        # header mask an incorrect callback URL token.
+        supplied = query_tokens[0] if len(query_tokens) == 1 else ""
+    elif allow_legacy_header:
+        supplied = request.headers.get("x-webhook-token", "")
+        if not supplied:
+            authorization = request.headers.get("authorization", "")
+            scheme, separator, credential = authorization.partition(" ")
+            if separator and scheme.lower() == "bearer":
+                supplied = credential.strip()
+    else:
+        supplied = ""
     if not supplied or not compare_digest(supplied.encode("utf-8"), expected.encode("utf-8")):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
 
@@ -140,6 +151,7 @@ def _safe_provider_id(value: str) -> str:
     return safe or "unknown"
 
 
+@router.post("/api/webhooks/africastalking/ussd", response_class=PlainTextResponse)
 @router.post("/ussd", response_class=PlainTextResponse)
 async def africastalking_ussd_callback(
     request: Request,
@@ -159,7 +171,7 @@ async def africastalking_ussd_callback(
         f"client:{_caller_host(request)}",
         f"phone-ref:{phone_ref}",
     )
-    _require_webhook_token(request)
+    _require_webhook_token(request, allow_legacy_header=request.url.path != "/ussd")
 
     configured_service_code = settings.at_ussd_service_code.strip()
     if configured_service_code and callback.service_code != configured_service_code:
@@ -187,7 +199,7 @@ async def africastalking_ussd_callback(
         return PlainTextResponse("END Sorry, something went wrong.")
 
 
-@router.post("/sms-status", response_model=WebhookAckResponse)
+@router.post("/api/webhooks/africastalking/sms-status", response_model=WebhookAckResponse)
 async def africastalking_sms_status_callback(
     request: Request,
     store: WebhookStore = Depends(get_webhook_store),  # noqa: B008
@@ -197,7 +209,14 @@ async def africastalking_sms_status_callback(
         request,
         SMSStatusCallbackRequest,
         required_fields={"id", "status"},
-        allowed_fields={"id", "status", "phoneNumber", "networkCode", "failureReason"},
+        allowed_fields={
+            "id",
+            "status",
+            "phoneNumber",
+            "networkCode",
+            "failureReason",
+            "retryCount",
+        },
     )
     message_ref = sha256(callback.provider_message_id.encode("utf-8")).hexdigest()
     recipient_ref = phone_reference(callback.phone_number) if callback.phone_number else message_ref
@@ -233,5 +252,76 @@ async def africastalking_sms_status_callback(
             "status": status_value,
             "error_code": error_code,
         },
+    )
+    return WebhookAckResponse(status="accepted")
+
+
+@router.post("/webhook/incoming", response_model=WebhookAckResponse)
+async def africastalking_incoming_sms_callback(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    store: WebhookStore = Depends(get_webhook_store),  # noqa: B008
+    gateway: SimulationGateway = Depends(get_simulation_gateway),  # noqa: B008
+) -> WebhookAckResponse:
+    """Validate incoming SMS and route game choices through the shared simulation engine."""
+    _require_webhook_token(request, allow_legacy_header=False)
+    callback = await _parse_form(
+        request,
+        IncomingSMSCallbackRequest,
+        required_fields={"from", "text"},
+        allowed_fields={
+            "from",
+            "text",
+            "to",
+            "id",
+            "linkId",
+            "date",
+            "networkCode",
+            "retryCount",
+        },
+    )
+    sender = callback.sender.strip()
+    if not re.fullmatch(r"\+?[1-9][0-9]{5,14}", sender):
+        raise HTTPException(status_code=400, detail="Invalid callback fields")
+    enforce_webhook_rate_limit(
+        f"client:{_caller_host(request)}",
+        f"phone-ref:{phone_reference(sender)}",
+    )
+    if not allowed_phone(sender, settings.at_allowed_phones):
+        reply = "MtaaLab: This number is not enabled for the demo. Ask your teacher for access."
+        session_id = None
+    else:
+        try:
+            outcome = process_sms_game_message(
+                phone_number=sender,
+                message=callback.text,
+                provider_message_id=callback.provider_message_id,
+                received_at=callback.date,
+                link_id=callback.link_id,
+                store=store,
+                gateway=gateway,
+                background_tasks=background_tasks,
+                configured_phones=settings.at_allowed_phones,
+            )
+            reply = outcome.response
+            session_id = outcome.session_id
+        except Exception as error:
+            logger.error(
+                "Africa's Talking SMS game callback failed",
+                extra={"error_code": type(error).__name__},
+            )
+            reply = "MtaaLab could not process that message. Please try again or text HELP."
+            session_id = None
+    background_tasks.add_task(
+        send_sms,
+        sender,
+        reply[:160],
+        session_id=session_id,
+        recipient_ref=phone_reference(sender),
+        sender_id=callback.recipient,
+    )
+    logger.info(
+        "Africa's Talking SMS game reply queued",
+        extra={"has_provider_id": bool(callback.provider_message_id)},
     )
     return WebhookAckResponse(status="accepted")

@@ -1,0 +1,71 @@
+{
+  "scenario_id": "soko_market",
+  "rules_version": "soko-market-v1",
+  "title": "Mama Mboga Market",
+  "description": "Run a fictional market stall. Balance order size, selling price and cash across six market days.",
+  "grade_band": "Teacher assigned",
+  "turn_duration": {"value": 1, "unit": "market day"},
+  "number_of_turns": 6,
+  "units": {"cash": "fictional credits", "stock": "fictional units"},
+  "initial_state": {
+    "current_turn": 0,
+    "cash_credits": 100,
+    "stock_units": 10,
+    "selling_price": 8,
+    "total_sold": 0,
+    "total_spoiled": 0,
+    "completed_actions": []
+  },
+  "unit_cost": 4,
+  "reference_price": 8,
+  "base_demand": 8,
+  "demand_cap": 12,
+  "spoilage_divisor": 4,
+  "plans": {
+    "value": {"label": "Value", "order_quantity": 5, "price": 6},
+    "steady": {"label": "Steady", "order_quantity": 5, "price": 8},
+    "premium": {"label": "Premium", "order_quantity": 10, "price": 10}
+  },
+  "actions": {
+    "market_plan": {
+      "label": "Choose a market plan",
+      "description": "Choose one fictional stock and price plan for the day. No real money or payment service is used.",
+      "choices": [
+        {"id": "value", "label": "Value: order 5 at 6 credits"},
+        {"id": "steady", "label": "Steady: order 5 at 8 credits"},
+        {"id": "premium", "label": "Premium: order 10 at 10 credits"}
+      ]
+    }
+  },
+  "events": [
+    {"event_type": "market_day", "demand_delta": 0, "short_delivery_units": 0},
+    {"event_type": "busy_market", "demand_delta": 2, "short_delivery_units": 0},
+    {"event_type": "supplier_shortfall", "demand_delta": 0, "short_delivery_units": 2},
+    {"event_type": "quiet_market", "demand_delta": -2, "short_delivery_units": 0},
+    {"event_type": "market_day", "demand_delta": 0, "short_delivery_units": 0},
+    {"event_type": "community_market", "demand_delta": 1, "short_delivery_units": 0}
+  ],
+  "learning_objectives": [
+    "Distinguish sales revenue from cash remaining after an order.",
+    "Explain how price, demand, stock and spoilage interact.",
+    "Compare plans using values from the market-day record."
+  ],
+  "reflection_choices": {
+    "1": {"tag": "over-order", "label": "I ordered too much"},
+    "2": {"tag": "price-demand", "label": "Price changed demand"},
+    "3": {"tag": "hint-requested", "label": "I need a hint"}
+  },
+  "hint_ladder": {
+    "en": [
+      "Compare the stock you have with expected demand.",
+      "A lower price can raise demand, but every order uses cash.",
+      "Check sold, leftover stock and spoilage in the last turn."
+    ],
+    "sw": [
+      "Linganisha bidhaa ulizonazo na mahitaji.",
+      "Bei ya chini inaweza kuongeza mahitaji, lakini oda hutumia pesa.",
+      "Angalia vilivyouzwa, vilivyosalia na vilivyoharibika."
+    ]
+  },
+  "approved_actors": []
+}

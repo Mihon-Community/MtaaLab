@@ -4,14 +4,14 @@ import { describe, expect, it } from "vitest";
 import App from "./App";
 
 describe("App", () => {
-  it("renders the mission lobby placeholder", () => {
+  it("renders the learner game lobby", () => {
     render(
       <MemoryRouter>
         <App />
       </MemoryRouter>,
     );
     expect(
-      screen.getByRole("heading", { name: "Mission lobby" }),
+      screen.getByRole("heading", { name: "MtaaLab games" }),
     ).toBeInTheDocument();
   });
 });
