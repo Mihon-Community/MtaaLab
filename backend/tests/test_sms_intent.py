@@ -35,7 +35,6 @@ class FakeNvidiaClient:
             "answer_reflection",
             3,
         ),
-        ("lobby", '{"intent":"list_games","selection_index":null}', "list_games", None),
     ],
 )
 def test_valid_intent_is_restricted_to_current_phase(
@@ -87,27 +86,83 @@ def test_intent_request_is_small_redacted_and_reasoning_is_bounded(
     monkeypatch: Any,
 ) -> None:
     monkeypatch.setattr(settings, "nvidia_api_key", "test-key")
-    client = FakeNvidiaClient('{"intent":"list_games","selection_index":null}')
+    client = FakeNvidiaClient('{"intent":"reply","selection_index":null,"reply_text":"Hello!"}')
 
     decision = interpret_sms_intent(
         message="I am Private Learner. Please show the games at +254712345678",
         phase="lobby",
         games=["Mtoni water"],
         options=[],
+        game_information=[{"index": "1", "title": "Mtoni water", "about": "Plan water resources."}],
+        playing_guide="Reply GAMES to list games.",
         client=client,
     )
 
     assert decision is not None
     assert client.call is not None
     assert client.call["max_tokens"] == 128
-    assert client.call["temperature"] == 0.2
+    assert client.call["temperature"] == 0.55
+    assert "seed" not in client.call
     assert client.call["extra_body"] == {"chat_template_kwargs": {"enable_thinking": False}}
     prompt = str(client.call["messages"])
     assert "Private Learner" not in prompt
     assert "+254712345678" not in prompt
     request_data = json.loads(client.call["messages"][1]["content"])
+    assert request_data["preferred_language"] == "en"
     assert "start_game" in request_data["valid_intents"]
     assert "choose_action" not in request_data["valid_intents"]
+    assert request_data["game_information"][0]["about"] == "Plan water resources."
+    assert request_data["playing_guide"] == "Reply GAMES to list games."
+    assert request_data["current_game"] is None
+
+
+def test_conversational_reply_is_bounded_and_pii_redacted(monkeypatch: Any) -> None:
+    monkeypatch.setattr(settings, "nvidia_api_key", "test-key")
+    client = FakeNvidiaClient(
+        '{"intent":"reply","selection_index":null,'
+        '"reply_text":"Hi! Soko lets you run a small market. Want to try it?"}'
+    )
+
+    decision = interpret_sms_intent(
+        message="What is Soko?",
+        phase="lobby",
+        games=["Mama Mboga Market"],
+        options=[],
+        current_game="Mtoni Water Resilience",
+        game_information=[
+            {"index": "1", "title": "Mama Mboga Market", "about": "Market planning."}
+        ],
+        client=client,
+    )
+
+    assert decision is not None
+    assert decision.intent == "reply"
+    assert decision.reply_text == "Hi! Soko lets you run a small market. Want to try it?"
+    assert client.call is not None
+    request_data = json.loads(client.call["messages"][1]["content"])
+    assert request_data["current_game"] == "Mtoni Water Resilience"
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        '{"intent":"reply","selection_index":null}',
+        '{"intent":"reply","selection_index":1,"reply_text":"Play Soko."}',
+        '{"intent":"reply","selection_index":null,"reply_text":"' + ("x" * 161) + '"}',
+    ],
+)
+def test_invalid_question_reply_is_rejected(monkeypatch: Any, content: str) -> None:
+    monkeypatch.setattr(settings, "nvidia_api_key", "test-key")
+
+    decision = interpret_sms_intent(
+        message="What is the game?",
+        phase="lobby",
+        games=["Mtoni water"],
+        options=[],
+        client=FakeNvidiaClient(content),
+    )
+
+    assert decision is None
 
 
 def test_missing_provider_key_uses_static_fallback(monkeypatch: Any) -> None:

@@ -248,9 +248,9 @@ def test_first_dial_and_repeated_repair_confirmation_apply_once(
         "CON Choose game\n1 Mtoni water resilience\n2 Mama Mboga Market\n"
         "3 Mtoni Fever Response\n4 Chama Trust Circle\n0 Back"
     )
-    assert selected.text.startswith("CON Mtoni water resilience 0/6")
+    assert selected.text.startswith("CON Mtoni Water, turn 1/6.")
     assert "Turn saved 1" in confirmed.text
-    assert "budget 75" in confirmed.text
+    assert "budget: 75" in confirmed.text
     assert "5 Choose another game" not in confirmed.text
     assert retry.text == confirmed.text
     assert len(confirmed.text) <= 160
@@ -288,7 +288,7 @@ def test_final_ussd_turn_queues_one_sms_summary() -> None:
     )
 
     assert first.response.startswith("CON Choose game")
-    assert selected.response.startswith("CON Mtoni water resilience 5/6")
+    assert selected.response.startswith("CON Mtoni Water, turn 6/6.")
     assert completed.completed is True
     assert completed.response.startswith("END Game complete.")
     assert len(background.tasks) == 1
@@ -324,6 +324,14 @@ def test_incoming_sms_callback_returns_help_reply_with_url_token(
         "app.api.webhooks.send_sms",
         lambda recipient, message, **kwargs: sent.append((recipient, message, kwargs)),
     )
+    monkeypatch.setattr(
+        "app.integrations.africas_talking.mobile_gameplay.interpret_sms_intent",
+        lambda **kwargs: SimpleNamespace(
+            intent="reply",
+            selection_index=None,
+            reply_text="Hi! I can explain the games and help you choose one. What sounds fun?",
+        ),
+    )
 
     accepted = query_client.post(
         f"/webhook/incoming?token={WEBHOOK_TEST_TOKEN}",
@@ -347,8 +355,7 @@ def test_incoming_sms_callback_returns_help_reply_with_url_token(
     assert sent == [
         (
             TEST_PHONE,
-            "MtaaLab commands\nJOIN <code>: link phone\nGAMES: list games\n"
-            "PLAY <n>: start\nCONTINUE: resume\nOPT IN: reminders\nSTOP: reminders off",
+            "Hi! I can explain the games and help you choose one. What sounds fun?",
             {
                 "session_id": None,
                 "recipient_ref": phone_reference(TEST_PHONE),
@@ -389,7 +396,7 @@ def test_sms_can_start_and_play_mtoni_using_the_shared_saved_session(
     assert started.status_code == 200
     assert confirmed.status_code == duplicate.status_code == 200
     assert "Games:" in sent[0][1]
-    assert "Mtoni water resilience 0/6" in sent[1][1]
+    assert "Mtoni Water, turn 1/6." in sent[1][1]
     assert "Turn saved 1" in sent[2][1]
     assert gateway.store.sessions[sms_session].state["current_turn"] == 1
     assert sms_session == ussd_session
@@ -450,7 +457,7 @@ def test_sms_play_restarts_an_ended_run_on_the_same_phone(
     assert response.status_code == 200
     assert new_session_id != old_session_id
     assert gateway.store.sessions[new_session_id].state["current_turn"] == 0
-    assert "Mtoni water resilience 0/6" in sent[0]
+    assert "Mtoni Water, turn 1/6." in sent[0]
 
 
 def test_incoming_sms_callback_rejects_missing_or_invalid_sender(
@@ -479,9 +486,9 @@ def test_cancel_invalid_input_and_exit_are_short_and_safe(
     exited = client.post("/api/webhooks/africastalking/ussd", data=ussd_body("1*2*0"))
 
     assert game_list.text.startswith("CON Choose game")
-    assert selected.text.startswith("CON Mtoni water resilience 0/6")
+    assert selected.text.startswith("CON Mtoni Water, turn 1/6.")
     assert action.text.startswith("CON Turn saved 1")
-    assert invalid.text.startswith("CON Why?\n1 ")
+    assert invalid.text.startswith("CON Why? 1 ")
     assert "0 Menu" in invalid.text
     assert exited.text.startswith("CON MtaaLab")
     assert len(gateway.decisions) == 1
@@ -512,7 +519,7 @@ def test_conservation_and_allocation_use_configured_presets(
         "/api/webhooks/africastalking/ussd",
         data=ussd_body("1*3", sessionId="provider-session-2"),
     )
-    assert select_mtoni.text.startswith("CON Mtoni water resilience 1/6")
+    assert select_mtoni.text.startswith("CON Mtoni Water, turn 2/6.")
     assert allocation.text.startswith("CON Turn saved 2")
     assert gateway.decisions[-1][1] == "change_allocation"
     assert gateway.decisions[-1][2] == {"policy_id": "balanced"}
