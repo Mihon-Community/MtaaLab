@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { apiFetch } from "../../services/api";
-import type { DecisionResponse, MissionDetail } from "../../types/api";
+import type { MissionDetail } from "../../types/api";
 import { PortfolioWorldCanvas } from "./PortfolioWorldCanvas";
 
 interface ConfirmedRun {
@@ -16,6 +16,19 @@ interface ConfirmedRun {
 interface ReflectedChoice {
   answer_code: string;
   misconception_tag: string;
+}
+
+interface PortfolioDecisionResponse {
+  session_id: string;
+  turn: number;
+  accepted: boolean;
+  state: Record<string, unknown>;
+  events: Array<{
+    event_type: string;
+    turn_number: number;
+    payload: Record<string, unknown>;
+  }>;
+  ai_feedback_status: string;
 }
 
 function key(): string {
@@ -37,9 +50,8 @@ export function PortfolioRunPage() {
   const missionId = query.get("missionId") ?? "";
   const [mission, setMission] = useState<MissionDetail | null>(null);
   const [run, setRun] = useState<ConfirmedRun | null>(null);
-  const [lastDecision, setLastDecision] = useState<DecisionResponse | null>(
-    null,
-  );
+  const [lastDecision, setLastDecision] =
+    useState<PortfolioDecisionResponse | null>(null);
   const [reflection, setReflection] = useState<ReflectedChoice | null>(null);
   const [hintLevel, setHintLevel] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -62,7 +74,7 @@ export function PortfolioRunPage() {
               action_type: string;
               parameters: Record<string, unknown>;
             } | null;
-            events: DecisionResponse["events"];
+            events: PortfolioDecisionResponse["events"];
           }>;
         }>(`/api/simulations/${sessionId}/history?limit=100`),
       ]);
@@ -115,7 +127,7 @@ export function PortfolioRunPage() {
                   action_type: string;
                   parameters: Record<string, unknown>;
                 } | null;
-                events: DecisionResponse["events"];
+                events: PortfolioDecisionResponse["events"];
               }>;
             }>(`/api/simulations/${sessionId}/history?limit=100`),
           ]);
@@ -156,7 +168,7 @@ export function PortfolioRunPage() {
     setBusy(true);
     setError("");
     try {
-      const result = await apiFetch<DecisionResponse>(
+      const result = await apiFetch<PortfolioDecisionResponse>(
         `/api/simulations/${sessionId}/decisions`,
         {
           method: "POST",
@@ -263,7 +275,7 @@ export function PortfolioRunPage() {
     (action) => action.action_type === "market_plan",
   );
   const marketChoices = Array.isArray(marketAction?.choices)
-    ? (marketAction.choices as Array<{ id: string; label: string }>)
+    ? marketAction.choices
     : Object.entries(mission.plans ?? {}).map(([id, plan]) => ({
         id,
         label: plan.label,
@@ -399,7 +411,7 @@ export function PortfolioRunPage() {
         >
           <h2>Hint {hintLevel} of 3</h2>
           <p>
-            {mission.hint_ladder.en?.[Math.max(0, hintLevel - 1)] ??
+            {mission.hint_ladder?.en?.[Math.max(0, hintLevel - 1)] ??
               "Compare the last confirmed event with the saved values."}
           </p>
           {hintLevel < 3 && (
