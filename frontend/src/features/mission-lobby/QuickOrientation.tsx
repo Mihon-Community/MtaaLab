@@ -8,18 +8,18 @@ import {
 const STEPS = [
   {
     icon: Search,
-    title: "Investigate",
-    description: "Inspect the world and the people who depend on it.",
+    title: "Explore a scenario",
+    description: "Inspect the Mtoni world and the people who depend on it.",
   },
   {
     icon: SlidersHorizontal,
-    title: "Decide",
+    title: "Make a decision",
     description: "Choose one action at a time from the mission rules.",
   },
   {
     icon: CircleCheck,
-    title: "See the confirmed result",
-    description: "The server records the outcome before it appears here.",
+    title: "See the confirmed outcome",
+    description: "The simulation returns a result before the page updates.",
   },
   {
     icon: MessageSquareText,

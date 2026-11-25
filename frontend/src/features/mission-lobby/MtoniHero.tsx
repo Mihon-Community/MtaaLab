@@ -22,9 +22,11 @@ export function MtoniHero() {
           Welcome to Mtoni
         </h1>
         <p className="mt-3 max-w-xl text-pretty text-base leading-relaxed text-muted-foreground md:text-lg">
-          A living community water system is waiting for you. Explore the
-          missions assigned to your class, investigate what is happening, and
-          make decisions together with your classmates.
+          MtaaLab is a simulation-first learning space. Learners investigate a
+          fictional community water system, choose actions, and explain what
+          changed. Teachers can review reports supported by the configured
+          service. Explore the missions assigned to your class to see how it
+          works.
         </p>
         <Button asChild size="lg" className="mt-6 w-full sm:w-auto">
           <a href="#missions">

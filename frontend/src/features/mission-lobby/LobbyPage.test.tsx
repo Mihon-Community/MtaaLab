@@ -1,17 +1,29 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { LazyMotion, domAnimation } from "motion/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ThemeProvider } from "@/lib/theme";
 import { LobbyPage } from "./LobbyPage";
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  window.localStorage.clear();
+  document.documentElement.className = "";
+  document.documentElement.removeAttribute("data-theme");
+  document.documentElement.removeAttribute("data-palette");
+  document.documentElement.removeAttribute("data-contrast");
+  document.documentElement.removeAttribute("data-motion");
 });
 
 function renderLobby() {
   return render(
-    <MemoryRouter>
-      <LobbyPage />
-    </MemoryRouter>,
+    <ThemeProvider>
+      <MemoryRouter>
+        <LazyMotion features={domAnimation}>
+          <LobbyPage />
+        </LazyMotion>
+      </MemoryRouter>
+    </ThemeProvider>,
   );
 }
 
@@ -56,12 +68,62 @@ describe("LobbyPage", () => {
       screen.getByRole("heading", { name: "Welcome to Mtoni" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("link", { name: "Explore missions" }),
-    ).toHaveAttribute("href", "#missions");
+      screen.getAllByRole("link", { name: "Explore missions" }),
+    ).toHaveLength(2);
+    for (const link of screen.getAllByRole("link", {
+      name: "Explore missions",
+    })) {
+      expect(link).toHaveAttribute("href", "#missions");
+    }
     expect(
       screen.getByRole("heading", { name: "How a mission works" }),
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", {
+        name: "Systems are hard to learn about from a distance.",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", {
+        name: "A scenario you can question, not just watch.",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", {
+        name: "Built around the work learners actually do.",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Ready to begin?" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Open teacher view" }),
+    ).toHaveAttribute("href", "/teacher");
     expect(screen.getAllByRole("listitem")).toHaveLength(4);
+  });
+
+  it("keeps landing content visible without reveal motion when reduced motion is selected", () => {
+    window.localStorage.setItem(
+      "mtaalab.ui-preferences",
+      JSON.stringify({
+        mode: "system",
+        palette: "mtoni",
+        contrast: "standard",
+        textScale: 1,
+        motion: "reduce",
+      }),
+    );
+
+    renderLobby();
+
+    expect(
+      screen
+        .getByRole("heading", {
+          name: "Systems are hard to learn about from a distance.",
+        })
+        .closest('[data-motion="reduced"]'),
+    ).toBeInTheDocument();
+    expect(document.querySelector('[data-motion="animated"]')).toBeNull();
   });
 
   it("shows the empty state when no missions are assigned", async () => {

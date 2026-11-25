@@ -11,8 +11,8 @@
     BlinkMacSystemFont,
     "Segoe UI",
     sans-serif;
-  color: #153b35;
-  background: #f6f7f2;
+  color: var(--foreground);
+  background: var(--background);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   font-optical-sizing: auto;
@@ -1915,23 +1915,23 @@ html {
 }
 
 :root[data-contrast="high"] body {
-  background: #fff;
+  background: var(--background);
 }
 
 :root[data-contrast="high"] .nav-link-active,
 :root[data-contrast="high"] .location-button[aria-pressed="true"],
 :root[data-contrast="high"] .action-option:has(input:checked),
 :root[data-contrast="high"] .display-setting[aria-pressed="true"] {
-  border: 2px solid #000;
-  background: #e2f0e9;
-  color: #000;
+  border: 2px solid var(--border);
+  background: var(--accent);
+  color: var(--accent-foreground);
 }
 
 :root[data-contrast="high"] .mission-card,
 :root[data-contrast="high"] .surface-card,
 :root[data-contrast="high"] .metric-card,
 :root[data-contrast="high"] .report-overview-card {
-  border-color: #555;
+  border-color: var(--border);
 }
 
 @media (max-width: 960px) {
@@ -2757,4 +2757,267 @@ html[data-motion="reduce"] *::after {
   .app-sidebar-print-hide {
     display: none !important;
   }
+}
+
+:root {
+  --surface-card: var(--card);
+  --surface-muted: var(--muted);
+  --surface-neutral: color-mix(in srgb, var(--foreground) 5%, var(--card));
+  --surface-brand: color-mix(in srgb, var(--primary) 9%, var(--card));
+  --surface-selected: var(--accent);
+  --surface-success: color-mix(in srgb, var(--status-good) 11%, var(--card));
+  --surface-warning: color-mix(in srgb, var(--status-warning) 13%, var(--card));
+  --surface-danger: color-mix(in srgb, var(--destructive) 10%, var(--card));
+  --surface-shadow: 0 8px 24px
+    color-mix(in srgb, var(--foreground) 8%, transparent);
+}
+
+[data-contrast="high"] {
+  --surface-neutral: var(--secondary);
+  --surface-brand: var(--secondary);
+  --surface-success: #e6ffe6;
+  --surface-warning: #fff1a8;
+  --surface-danger: #ffe0e0;
+  --surface-shadow: 0 0 0 1px var(--border);
+}
+
+[data-contrast="high"].dark,
+.dark[data-contrast="high"] {
+  --surface-success: #003320;
+  --surface-warning: #332a00;
+  --surface-danger: #3a0d0d;
+}
+
+/* Keep legacy page surfaces tied to the active palette and color mode. */
+.surface-card,
+.mission-card,
+.metric-card,
+.report-overview-card,
+.loading-card,
+.resource-hud,
+.teacher-mission-row,
+.voice-card,
+.replay-run-headings > div {
+  border-color: var(--border);
+  background: var(--surface-card);
+  color: var(--foreground);
+  box-shadow: var(--surface-shadow);
+}
+
+.briefing-facts div,
+.briefing-action,
+.action-rule-tag,
+.environment-indicators > div,
+.decision-preview,
+.event-note,
+.reflection-result,
+.debrief-result,
+.timeline-entry .timeline-evidence,
+.report-outcome,
+.criterion-list li,
+.teacher-report-card .report-overview-card,
+.accounting-values div,
+.accounting-withdrawals li,
+.timeline-delta span {
+  border-color: var(--border);
+  background: var(--surface-muted);
+  color: var(--foreground);
+}
+
+.assignment-count,
+.world-map-caption {
+  border-color: var(--border);
+  background: var(--surface-card);
+  color: var(--muted-foreground);
+}
+
+.subject-tag,
+.mission-objective,
+.turn-chip,
+.report-objective {
+  border-color: var(--border);
+  background: var(--surface-brand);
+  color: var(--foreground);
+}
+
+.objective-list li,
+.objective-list li::before,
+.briefing-facts dd,
+.briefing-action-heading span,
+.action-rule-tag,
+.controls-list,
+.mission-objective p,
+.objective-label,
+.preview-label,
+.display-setting,
+.command-alerts,
+.decision-preview p,
+.feedback-status,
+.secondary-action,
+.timeline-entry > p,
+.timeline-entry .timeline-event,
+.report-overview-card strong,
+.report-outcome strong,
+.comparison-table tbody td,
+.demo-banner,
+.voice-event {
+  color: var(--foreground);
+}
+
+.objective-list li::before {
+  background: var(--surface-brand);
+  color: var(--primary);
+}
+
+.assigned-tag {
+  background: var(--surface-neutral);
+  color: var(--muted-foreground);
+}
+
+.assigned-tag::before,
+.status-dot {
+  background: var(--status-good);
+}
+
+.mission-card-meta,
+.mission-card-meta strong,
+.nav-link,
+.nav-link-active,
+.action-option,
+.form-field input,
+.form-field select,
+.form-field textarea,
+.secondary-action,
+.notice-action {
+  border-color: var(--border);
+}
+
+.mission-card-meta {
+  border-top-color: var(--border);
+}
+
+.notice-card {
+  border-color: var(--border);
+  background: var(--surface-warning);
+  color: var(--foreground);
+}
+
+.notice-card-error {
+  border-color: var(--destructive);
+  background: var(--surface-danger);
+  color: var(--foreground);
+}
+
+.notice-card-empty,
+.notice-action,
+.action-option,
+.form-field input,
+.form-field select,
+.form-field textarea,
+.secondary-action {
+  background: var(--surface-card);
+  color: var(--foreground);
+}
+
+.notice-action:hover:not(:disabled),
+.secondary-action:hover:not(:disabled) {
+  background: var(--surface-muted);
+}
+
+.display-setting[aria-pressed="true"] {
+  background: var(--surface-selected);
+  color: var(--accent-foreground);
+}
+
+.feedback-status {
+  background: var(--surface-success);
+  color: var(--primary);
+}
+
+.feedback-pending {
+  background: var(--surface-warning);
+  color: var(--foreground);
+}
+
+.feedback-ai_unavailable {
+  background: var(--surface-danger);
+  color: var(--foreground);
+}
+
+.nav-link:hover,
+.nav-link-active {
+  background: var(--sidebar-accent);
+  color: var(--sidebar-accent-foreground);
+}
+
+.nav-link {
+  color: var(--muted-foreground);
+}
+
+.action-option:has(input:checked) {
+  background: var(--surface-selected);
+  color: var(--accent-foreground);
+}
+
+.event-note {
+  border-left-color: var(--primary);
+}
+
+.mission-objective {
+  border-left-color: var(--primary);
+}
+
+.world-canvas-frame {
+  border-color: var(--border);
+  background: var(--surface-muted);
+}
+
+.world-map-caption {
+  border-top-color: var(--border);
+}
+
+.command-alerts {
+  border-left-color: var(--border);
+}
+
+.timeline-list {
+  border-left-color: var(--border);
+}
+
+.timeline-marker {
+  border-color: var(--surface-card);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.reasoning-feedback {
+  border-top-color: var(--border);
+}
+
+.cached-state-label {
+  color: var(--destructive);
+}
+
+.demo-banner {
+  border-color: var(--border);
+  background: var(--surface-brand);
+}
+
+.demo-banner code {
+  background: var(--surface-muted);
+  color: var(--foreground);
+}
+
+[data-contrast="high"] .demo-banner {
+  border-color: var(--border);
+  background: var(--surface-brand);
+  color: var(--foreground);
+}
+
+.map-key span {
+  background: var(--status-good);
+}
+
+.sector-list meter::-webkit-meter-bar,
+.command-reservoir meter::-webkit-meter-bar {
+  background: var(--surface-neutral);
 }
