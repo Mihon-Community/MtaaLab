@@ -2,11 +2,15 @@
 
 ## Ownership
 
-Developer 1 owns `feature/steve` (frontend and simulation experience). **“The client displays state returned by FastAPI; it must not calculate the official outcome.”** Phaser renders/collects interaction; React owns routes, controls, accessibility, loading state, and confirmed API state.
+The browser application is React; do not add a parallel Streamlit UI. React owns routes, controls, accessibility, loading states, and presentation. Phaser renders the simulation world and reports user intent.
+
+**FastAPI owns every authoritative simulation decision.** The client displays confirmed API state and must never calculate, predict, or persist official outcomes.
 
 ## Local setup
 
-Use Node 22 LTS, pinned by root `../.nvmrc` (CI reads `frontend/.nvmrc`):
+Use Node 22 LTS, pinned by the repository `.nvmrc`:
+
+Create the one local environment file at the repository root from `.env.example` (PowerShell: `Copy-Item .env.example .env`). Do not create a second `frontend/.env`.
 
 ```sh
 cd frontend
@@ -14,38 +18,24 @@ npm ci
 npm run dev
 ```
 
-From the repository root, create the one local file with `cp .env.example .env` (PowerShell: `Copy-Item .env.example .env`). Vite reads that root file; do not create a second `frontend/.env`. Checks: `npm run test`, `npm run lint`, `npm run typecheck`, `npm run build`, and `npm run format:check`. Values can remain placeholders; the Supabase client is lazy and returns null until real public config is set.
+Before opening a frontend PR, run `npm run test`, `npm run lint`, `npm run typecheck`, `npm run build`, and `npm run format:check` from `frontend/`. The package manifest and lockfile are the source of truth for dependencies; do not install packages globally.
 
 ## Folder map and rendering boundary
 
-- `app/routes/`: page route table; `app/auth/`: future sign-in/session UI.
+- `app/routes/`: page route table; `app/auth/`: authentication UI.
 - `features/mission-lobby/`, `briefing/`, `simulation/`, `replay/`, `learning-report/`, `teacher-view/`: feature screens.
 - `features/simulation/WorldScene.ts`: Phaser scene; `WorldCanvas.tsx`: mount/bridge; `worldLocations.ts`: shared location list for the map and its button equivalents; other panels are React UI.
 - `components/`: reusable accessible controls; `services/api.ts`: typed FastAPI wrapper; `services/sessionCache.ts`: last confirmed session for offline display; `services/supabase.ts`: lazy Supabase client; `types/`: shared API/database types; `styles/`: Tailwind and global styles.
-- Planned with the UI system below: `components/ui/` (generated shadcn primitives — do not hand-edit beyond token tweaks), `components/layout/` (AppShell, AppSidebar, TopNav, MobileTabBar, PageHeader), `components/charts/` (chart wrappers with table fallbacks), `lib/utils.ts` (`cn()`), `lib/theme.tsx` (theme/contrast/text-size/motion preferences).
+- `components/ui/`: project-owned shadcn-style primitives; `components/layout/`: shared app chrome; `components/charts/`: charts and accessible table alternatives; `lib/`: shared utilities and preferences.
 
-Phaser may draw scene assets and report a selected location/action intent. It cannot compute official state. React receives that intent, sends it to FastAPI, and updates official state only after the confirmed response. Provide equivalent buttons/list entries for every map selection.
+Phaser may draw scene assets and report a selected location/action intent. It cannot compute official state. React sends the intent to FastAPI and updates the UI only after a confirmed response. Every map selection must also be available through keyboard-operable controls outside the canvas.
 
 ## Required screens (§8)
 
 - Required: mission lobby; briefing; simulation world; decision centre; stakeholder panel (1–2 AI interactions); turn timeline; learning report; basic teacher console.
-- The current API cannot edit teacher assignments or list learners. Its stakeholder feedback endpoint returns a status rather than dialogue text; the UI must state these limits instead of fabricating data.
+- The current API contract defines the available teacher and stakeholder capabilities. Render only fields and actions the API actually supports; show pending or unavailable feedback as such rather than fabricating dialogue.
 
-### Current status (audit, 2026-11-24)
-
-| Area               | Implemented                                                                                                                                                                        | Still to do                                                                                                                                                                                                    |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| App shell          | Skip link, brand header, flat horizontal `NavLink` list, footer, contrast + text-size toggle                                                                                     | Responsive navbar, collapsible sidebar, mobile hamburger/sheet, bottom tab bar, breadcrumbs, persisted preferences, dark theme, route-level lazy loading, 404 page (unknown routes currently render the lobby) |
-| Navigation context | Pages read `session_id` / `mission_id` / `source_session_id` from the query string                                                                                           | Main nav links drop these params, so moving Simulation → Report from the header loses the session. Nav must carry the active session (see _Navigation_)                                                     |
-| Mission lobby      | Mission cards from `GET /api/missions`, loading/error/empty notices, briefing link                                                                                               | shadcn `Card` + skeletons, icons, estimated play time, motion on enter                                                                                                                                       |
-| Briefing           | Objectives, facts, action catalogue, controls list, optional read-aloud, start mission                                                                                             | Journey stepper, glossary/hints (`Accordion`/`Tooltip` with tap support), sticky start CTA on phones                                                                                                       |
-| Simulation         | Phaser world (lazy chunk), location buttons, inspection, HUD with `<meter>`, decision form with idempotency + expected turn, event panel, timeline, offline last-confirmed state | Mobile layout (map / decide / timeline tabs, decision `Drawer`), HUD charts, water-accounting chart per turn, toasts for confirmed turns, connection badge in navbar                                         |
-| Replay             | Two-run comparison table, decision lists                                                                                                                                           | Grouped bar + paired line charts, table toggle                                                                                                                                                                 |
-| Learning report    | Outcomes grid, service-level meters, decisions, events, debrief generation, rubric criteria                                                                                        | Service-level bar chart, reservoir/budget trend from history, printable layout                                                                                                                                 |
-| Teacher view       | Session-report lookup and summary                                                                                                                                                  | Card/table layout, report charts; assignment editing and learner lists remain blocked by the API                                                                                                               |
-| Shared components  | `ContrastToggle`, `AudioControls`                                                                                                                                              | `LoadingState` and `AccessibleButton` are still TODO stubs — replace with shadcn `Skeleton`/`Button`-based versions                                                                                   |
-| Styling            | ~2,000 lines of hand-written CSS classes in `styles/index.css`; Tailwind 3 installed but unused (`theme.extend` is empty)                                                      | Design tokens, shadcn primitives, migrate screens off legacy classes one at a time                                                                                                                             |
-| Accessibility      | Labelled controls, `role="status"` regions, high-contrast theme, text scale, reduced-motion CSS                                                                                  | Checklist items below are not yet verified end to end                                                                                                                                                          |
+The guide describes design and behavior requirements, not a live implementation audit. Check the current source and API contract before treating any screen, endpoint, or component as implemented.
 
 ## UI system
 
@@ -53,42 +43,22 @@ The goal is a calm, legible learning tool that feels alive without hiding inform
 
 ### Stack
 
-| Concern                | Choice                                                                                      | Notes                                                                                                                    |
-| ---------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Primitives             | [shadcn/ui](https://ui.shadcn.com) (Radix-based, copied into `components/ui/`)             | Accessible keyboard/focus behaviour out of the box                                                                       |
-| Icons                  | `lucide-react`                                                                            | Tree-shaken named imports only; never `import * as Icons`                                                              |
-| Styling                | Tailwind CSS v4 + CSS variables                                                             | Current shadcn targets Tailwind v4 and React 19. If the upgrade is blocked, pin `shadcn@2.3.0` for Tailwind v3 instead |
-| Motion                 | `motion` (`motion/react`) with `LazyMotion` + `domAnimation` and `m.*` components | Keeps the motion bundle small; `MotionConfig reducedMotion="user"` at the root                                         |
-| Charts                 | shadcn `chart` (Recharts)                                                                 | Loaded only on routes that chart; every chart has a table view                                                           |
-| Mobile drawer / toasts | shadcn `drawer` (vaul), `sonner`                                                        | Toasts only for server-confirmed events                                                                                  |
+| Concern                | Default                                                                                     | Guidance                                                                                                               |
+| ---------------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Components             | [shadcn/ui](https://ui.shadcn.com) patterns and Radix primitives                             | Keep generated/copied components in `src/components/ui/`; adapt them to the project rather than adding a second system. |
+| Icons                  | [`lucide-react`](https://lucide.dev/guide/packages/lucide-react)                             | Use named imports; pair meaningful icons with visible text.                                                            |
+| Styling                | Existing Tailwind CSS 3.4 and CSS variables                                                 | Preserve the installed Tailwind major version. Do not migrate to Tailwind 4 as part of feature work.                    |
+| Optional components    | [Kokonut UI](https://kokonutui.com)                                                         | Use selectively as a source of React/Tailwind patterns. Adopt one component at a time and align it with app tokens, accessibility, and existing shadcn primitives. |
+| Motion                 | [`motion`](https://motion.dev)                                                              | Respect the reduced-motion preference; motion must not convey information by itself.                                   |
+| Charts                 | Recharts via the shared chart components                                                   | Load charts with the pages that need them and provide a text summary and data table.                                     |
+| Drawers / notifications| Radix-based dialog primitives, `vaul`, and `sonner`                                         | Use for mobile decision flows and concise status messages; only report success after server confirmation.             |
 
-### Setup steps
-
-Run each step as its own PR-sized change and keep all checks green between them.
-
-```sh
-cd frontend
-# 1. Tailwind v3 -> v4 (review the diff; legacy classes in index.css should survive)
-npx @tailwindcss/upgrade
-npm i -D @tailwindcss/vite
-# 2. Path alias: add "baseUrl": ".", "paths": { "@/*": ["./src/*"] } to tsconfig.json
-#    and resolve.alias { "@": path.resolve(__dirname, "src") } + tailwindcss() plugin in vite.config.ts
-# 3. shadcn
-npx shadcn@latest init
-npx shadcn@latest add button card badge separator sheet sidebar tooltip dropdown-menu \
-  tabs drawer dialog alert-dialog accordion progress skeleton scroll-area table \
-  breadcrumb toggle-group radio-group slider label textarea sonner chart
-# 4. Motion
-npm i motion
-```
-
-`shadcn init` installs `lucide-react`, `clsx`, `tailwind-merge`, `class-variance-authority`, and `tw-animate-css`. Pin exact versions in `package.json` to match the rest of the repo.
+Use the existing project dependencies where possible. shadcn/ui is a component-generation approach, not a reason to install a second runtime component library. Before adding a component, check `src/components/ui/`, the package manifest, and existing feature components. Do not copy Kokonut UI wholesale or introduce overlapping primitives.
 
 ### Bundle and bandwidth budget
 
 - Lazy-load every route with `React.lazy` + `Suspense` (fallback: page skeleton). Phaser is already a separate chunk; keep it that way.
-- Recharts loads only with Simulation, Replay, Report and Teacher chunks — never in the shell.
-- Target: shell + lobby under ~180 KB gzip JS. Check `npm run build` output in every UI PR.
+- Load Recharts only with chart-enabled routes, never in the app shell. Check `npm run build` output when changing route or chart imports.
 - No remote fonts or images at runtime. Use the system font stack, or one self-hosted variable `woff2` with `font-display: swap`.
 - Illustrations are inline SVG or small compressed WebP; lazy-load anything below the fold.
 
@@ -168,11 +138,11 @@ Desktop ≥1024                         Phone <768
 | Simulation | `Tabs`: **Map** (canvas + location chips) / **Decide** (opens `Drawer` with one action at a time) / **Timeline**. HUD collapses to a 2×2 stat strip | 12-col grid: HUD row full width; map 8 cols + inspection 4 cols; decision panel and event panel side by side below; timeline in a `ScrollArea` |
 | Replay     | Metric cards with original vs alternative, charts stacked, table toggle                                                                                                    | Charts side by side with the comparison table below                                                                                              |
 | Report     | Outcome stat cards → charts → decisions → debrief, print-friendly                                                                                                       | Two-column: outcomes/charts left, debrief/rubric right                                                                                           |
-| Teacher    | Session lookup card, report cards                                                                                                                                          | Lookup + summary in the header, report detail in a tabbed panel. State the API limits in an inline `Alert`                                     |
+| Teacher    | Session lookup card, report cards                                                                                                                                          | Lookup + summary in the header, report detail in a tabbed panel. Show only actions and data supported by the current API.                       |
 
 ### Cards
 
-Use shadcn `Card` everywhere instead of `surface-card`, `metric-card`, and `mission-card`. Define a few variants with `cva` in `components/ui/card.tsx`:
+Prefer the shared shadcn `Card` primitives over one-off card markup. Add variants with `cva` in `components/ui/card.tsx` only when multiple screens need the same treatment:
 
 - `default`: `rounded-2xl border bg-card shadow-sm`, padding `p-5 md:p-6`.
 - `interactive` (mission cards, location chips): hover/focus lifts 2px with `shadow-md` and a `ring-primary` focus ring. The whole card is one link or button, not nested buttons.
@@ -236,49 +206,24 @@ Chart only values the API returned. Reformatting for display is allowed (e.g. re
 | Replay                       | Original vs alternative         | Both sessions' reports/history                          | Grouped bars per outcome metric (slot 1 vs slot 2) + paired reservoir lines; legend + direct labels          |
 | Teacher                      | Learner session outcome         | Session report                                          | Same components as the report; no class aggregates until the API provides them                               |
 
-Build rules (shared `components/charts/ChartFrame.tsx`):
+Build charts through shared components (for example `components/charts/ChartFrame.tsx`) so every screen follows the same rules:
 
 - Wrap each chart in `<figure>` with a visible title, a one-sentence `figcaption` summary generated from the values (e.g. "Reservoir fell from 800 to 640 water units over 3 turns"), units on axes, and a **Chart / Table** `ToggleGroup`. The table uses shadcn `Table` with the same numbers.
 - Use 2px lines and thin bars with 4px rounded data ends and a 2px gap between adjacent bars. Grid lines and axes are recessive (`--border`), with a legend for ≥ 2 series.
 - Tooltips show on hover **and** on focus/tap. Each mark has a hit target ≥ 24px.
-- Use `ChartContainer` + `ChartConfig` from shadcn `chart` and map series colours to the tokens above via CSS variables, so themes swap in one place. In high-contrast mode, add dash patterns to lines and texture to bars.
+- If using shadcn's copied `chart` component, use `ChartContainer` + `ChartConfig` and map series colours to the tokens above via CSS variables. In high-contrast mode, distinguish series with dash patterns and textures as well as colour.
 - Charts render inside `aspect-[16/9] md:aspect-[2/1]` containers with a min-height of 200px. On phones, prefer horizontal bars and let long axis labels wrap.
 
-## Build prompts
+## Delivery order
 
-Copy-paste prompts for implementing each piece with an AI assistant or as a ticket. Each assumes the setup steps above are done and that the assistant reads this guide, `docs/API_CONTRACT.md`, and the existing feature file first. Run one prompt per PR.
+For substantial UI work, deliver small reviewable changes and keep the existing checks green:
 
-**1. Tokens and themes**
+1. Protect the end-to-end mission path: load a mission, create or resume a session, submit a decision, and display only the confirmed response.
+2. Improve shared navigation, session context, loading/error/empty/offline states, and mobile layouts without changing API behavior.
+3. Polish the feature screens and introduce charts only where the API supplies suitable data.
+4. Finish with keyboard, screen-reader, contrast, reduced-motion, narrow viewport, and bundle checks.
 
-> In `frontend/`, map the colour tokens from `docs/FRONTEND_GUIDE.md` → _Theme and colour tokens_ and _Data colours_ onto shadcn CSS variables in `src/styles/index.css` for light, dark (`.dark`), and `[data-contrast="high"]`. Create `src/lib/theme.tsx` with a `ThemeProvider` persisting theme (light/dark/system), high contrast, text scale (0.9–1.25), and reduced-motion override in `localStorage`. Apply it on `<html>` before paint via an inline script in `index.html`. Replace `ContrastToggle` with a `DisplaySettings` dropdown (lucide `Settings2`, `Sun`, `Moon`, `Contrast`). Keep existing tests passing and add tests for persistence.
-
-**2. App shell and navigation**
-
-> Replace the header in `src/app/App.tsx` with an `AppShell` using shadcn `Sidebar` (`collapsible="icon"`), `SidebarInset`, a sticky `TopNav` (SidebarTrigger, Breadcrumb, connection badge, DisplaySettings), and a phone-only `MobileTabBar`, exactly as described in _Layout and navigation_. Group routes in `routePages` with `group` and `icon` fields. Add `useSessionContext()` so nav links preserve `session_id`/`mission_id` and session-only routes are disabled with a visible reason. Lazy-load routes with `React.lazy`, add a real 404 page, and move focus to the page `<h1>` on navigation. Keep the skip link. Test keyboard navigation, sheet focus trap/return, and preserved query params.
-
-**3. Shared states**
-
-> Replace the stub `LoadingState` and `AccessibleButton` with shadcn-based components: `LoadingState` (skeleton variants for card grid, page, chart; `role="status"` text), `ErrorState` (icon, message, Retry button with `RotateCw`), `EmptyState`, and `OfflineBanner` ("Offline — showing last confirmed state"). Update every page to use them. Do not change data fetching behaviour.
-
-**4. Lobby and briefing**
-
-> Restyle `LobbyPage` and `BriefingPage` with shadcn `Card` variants (`interactive`, `stat`), lucide icons from the _Icon map_, an inline SVG Mtoni hero built from theme tokens, the journey stepper, an `Accordion` glossary, and a sticky mobile "Start mission" bar. Add `motion` page-enter and card stagger that respect reduced motion. Keep all existing roles, labels and test IDs, and keep tests green.
-
-**5. Simulation responsive layout**
-
-> Rework `SimulationPage` into the desktop 12-column grid and the phone `Tabs` layout (Map / Decide / Timeline) from _Screen layouts_. On phones the decision form opens in a shadcn `Drawer` and shows one action at a time. Convert `ResourceHUD` to `stat` cards with lucide icons, units, and status badges (icon + text). Animate HUD values and the timeline only after the server confirms a decision, and fire a `sonner` toast "Turn N confirmed". Keep idempotency, expected-turn, duplicate-submit protection, and offline behaviour unchanged. Add tests for the phone layout and for no state change before confirmation.
-
-**6. Charts**
-
-> Add `src/components/charts/` with `ChartFrame` (figure, title, generated summary caption, Chart/Table toggle, shadcn `Table` fallback) and these charts using shadcn `chart`: `ReservoirTrendChart`, `BudgetTrendChart`, `WaterAccountingChart`, `ServiceLevelChart`, `RunComparisonChart`. Follow _Charts_ and _Data colours_ exactly: no dual axis, sector colours fixed per entity, direct labels, focus/tap tooltips, high-contrast patterns, animation off under reduced motion. Plot only API values. Use them in Simulation, Report, Replay and Teacher views. Test that table views match the data, and that the charts are absent from the shell chunk.
-
-**7. Report, replay, teacher polish**
-
-> Restyle `ReportPage`, `ReplayPage` and `TeacherPage` with `stat` cards, the chart components, `Tabs` for detail sections, and print styles for the report (`@media print`: hide nav, single column). In `TeacherPage`, show the API limits (no assignment editing or learner list) in an inline `Alert` with `Info` icon. Keep all API behaviour unchanged.
-
-**8. Accessibility and responsive pass**
-
-> Audit every route at 320, 375, 768, 1024 and 1440px in light, dark and high-contrast themes, with 125% text and reduced motion. Fix overflow, target sizes under 44px on touch, missing focus rings, colour-only signals, and hover-only interactions. Tick the _Accessibility checklist_ only for verified items and note anything outstanding in the PR.
+Before implementing a screen, read its feature code and `docs/API_CONTRACT.md`. Keep API contract changes coordinated with backend work. Do not treat this guide as evidence that a feature or endpoint already exists.
 
 ## Interaction rules
 
@@ -304,17 +249,6 @@ Cache the static shell and approved mission content. Keep last confirmed state a
 ## Supabase
 
 Use only `VITE_SUPABASE_URL` and the publishable key in the browser; all `VITE_` values are public. Use Supabase Auth session and pass its JWT as Bearer token to FastAPI. RLS remains required. Use Realtime for private, scoped meaningful updates; reconnect and refresh state after disconnect. Never write authoritative simulation state directly from the client.
-
-## 11-hour plan mapping (§13, Developer 1)
-
-1. **0–1h:** layout, Phaser skeleton, API shapes; joint contract checkpoint.
-2. **1–3h:** app/routes and briefing; align mission variables.
-3. **3–5h:** world view and keyboard/touch-selectable locations.
-4. **5–7h:** HUD, decision/confirmation, timeline; protect vertical slice at hour 7.
-5. **7–9h:** stakeholder/event panel and loading/error states. Joint checkpoint: one decision changes confirmed backend state.
-6. **9–11h:** report, replay comparison, responsive/accessibility polish, demo rehearsal. Joint checkpoint: API decision works, feedback grounded, sandbox USSD/SMS shown or limitations accurately stated.
-
-The UI system work (build prompts 1–8) is polish on top of a working vertical slice. If time is short, do prompts 1–3 and 5 first. Charts and motion come after the end-to-end mission is protected (spec cut line).
 
 ## Mock before backend is ready
 
