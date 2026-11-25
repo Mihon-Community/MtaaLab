@@ -22,6 +22,7 @@ import type {
   WaterAccounting,
 } from "../../types/api";
 import { toast } from "sonner";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { BudgetTrendChart, ReservoirTrendChart } from "@/components/charts";
 import { EventPanel } from "./EventPanel";
 import { InspectionPanel } from "./InspectionPanel";
@@ -389,40 +390,42 @@ export function SimulationPage() {
 
   return (
     <section className="simulation-page" aria-labelledby="simulation-title">
-      <div className="simulation-heading-row">
-        <div className="page-heading">
-          <p className="eyebrow">Mtoni catchment · {activeMission.subject}</p>
-          <h1 id="simulation-title">{activeMission.title}</h1>
-          <p className="page-intro">{activeMission.description}</p>
-        </div>
-        <div className="simulation-page-actions">
-          {stateError && (
-            <span className="cached-state-label">
-              Showing last confirmed state
-            </span>
-          )}
-          <Link
-            className="text-link"
-            to={`/report?session_id=${encodeURIComponent(sessionId)}`}
-          >
-            Learning report
-          </Link>
-          <Link
-            className="text-link"
-            to={`/replay?source_session_id=${encodeURIComponent(sessionId)}`}
-          >
-            Replay this run
-          </Link>
-          {compareSessionId && (
+      <PageHeader
+        eyebrow={`Mtoni catchment · ${activeMission.subject}`}
+        title={activeMission.title}
+        description={activeMission.description}
+        titleId="simulation-title"
+        className="mb-6"
+        actions={
+          <>
+            {stateError && (
+              <span className="cached-state-label">
+                Showing last confirmed state
+              </span>
+            )}
             <Link
               className="text-link"
-              to={`/replay?source_session_id=${encodeURIComponent(compareSessionId)}&replay_session_id=${encodeURIComponent(sessionId)}&mission_id=${encodeURIComponent(activeMission.id)}`}
+              to={`/report?session_id=${encodeURIComponent(sessionId)}`}
             >
-              Compare with original
+              Learning report
             </Link>
-          )}
-        </div>
-      </div>
+            <Link
+              className="text-link"
+              to={`/replay?source_session_id=${encodeURIComponent(sessionId)}`}
+            >
+              Replay this run
+            </Link>
+            {compareSessionId && (
+              <Link
+                className="text-link"
+                to={`/replay?source_session_id=${encodeURIComponent(compareSessionId)}&replay_session_id=${encodeURIComponent(sessionId)}&mission_id=${encodeURIComponent(activeMission.id)}`}
+              >
+                Compare with original
+              </Link>
+            )}
+          </>
+        }
+      />
 
       {(stateError || missionError) && (
         <div className="notice-card notice-card-error" role="alert">

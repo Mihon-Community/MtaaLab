@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { ApiError, getMissions } from "../../services/api";
 import { formatGradeBand } from "../../lib/utils";
 import type { MissionListItem } from "../../types/api";
+import { PageHeader } from "@/components/layout/PageHeader";
 
 export function LobbyPage() {
   const [missions, setMissions] = useState<MissionListItem[]>([]);
@@ -43,14 +44,13 @@ export function LobbyPage() {
 
   return (
     <section aria-labelledby="lobby-title">
-      <div className="page-heading">
-        <p className="eyebrow">Mtoni catchment · Mission desk</p>
-        <h1 id="lobby-title">A living world, shaped by your choices.</h1>
-        <p className="page-intro">
-          Explore the missions assigned to your class. Each one asks you to
-          balance community needs, shared resources, and the long view.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Mtoni catchment · Mission desk"
+        title="A living world, shaped by your choices."
+        description="Explore the missions assigned to your class. Each one asks you to balance community needs, shared resources, and the long view."
+        titleId="lobby-title"
+        className="mb-6"
+      />
 
       <div className="lobby-toolbar">
         <h2>Assigned missions</h2>

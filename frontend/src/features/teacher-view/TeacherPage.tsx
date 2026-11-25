@@ -14,6 +14,7 @@ import type {
   MissionReport,
 } from "../../types/api";
 import { ServiceLevelChart } from "@/components/charts";
+import { PageHeader } from "@/components/layout/PageHeader";
 
 export function TeacherPage() {
   const [missions, setMissions] = useState<MissionListItem[]>([]);
@@ -69,14 +70,13 @@ export function TeacherPage() {
 
   return (
     <section className="teacher-page" aria-labelledby="teacher-title">
-      <p className="eyebrow">Educator workspace</p>
-      <div className="page-heading">
-        <h1 id="teacher-title">Teacher console</h1>
-        <p className="page-intro">
-          Review missions assigned to your classes and inspect an authorized
-          learner report using its session ID.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Educator workspace"
+        title="Teacher console"
+        description="Review missions assigned to your classes and inspect an authorized learner report using its session ID."
+        titleId="teacher-title"
+        className="mb-6"
+      />
 
       <div className="notice-card teacher-capability-note">
         <p>

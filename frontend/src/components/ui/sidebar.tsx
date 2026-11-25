@@ -12,7 +12,11 @@ import {
 import * as Slot from "@radix-ui/react-slot";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useCookieState, useIsMobile } from "@/lib/useMediaQuery";
+import {
+  useCookieState,
+  useIsMobile,
+  useMediaQuery,
+} from "@/lib/useMediaQuery";
 import { Sheet, SheetContent, SheetTitle } from "./sheet";
 import {
   Tooltip,
@@ -56,9 +60,12 @@ export function SidebarProvider({
   defaultCollapsed = false,
 }: SidebarProviderProps) {
   const isMobile = useIsMobile();
+  // Tablets start as the compact icon rail; the persisted cookie still wins
+  // once the learner has chosen an explicit state.
+  const isTablet = useMediaQuery("(min-width: 768px) and (max-width: 1023px)");
   const [storedOpen, setStoredOpen] = useCookieState(
     "sidebar_state",
-    !defaultCollapsed,
+    !(defaultCollapsed || isTablet),
   );
   // The cookie stores "open"/"closed"; the UI state is "collapsed".
   const collapsed = !storedOpen;

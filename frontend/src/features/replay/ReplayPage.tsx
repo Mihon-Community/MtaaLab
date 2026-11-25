@@ -15,6 +15,7 @@ import type {
   SessionStateResponse,
 } from "../../types/api";
 import { RunComparisonChart } from "@/components/charts";
+import { PageHeader } from "@/components/layout/PageHeader";
 
 const sectors: Sector[] = ["households", "school", "clinic", "farms"];
 
@@ -138,14 +139,13 @@ export function ReplayPage() {
 
   return (
     <section className="replay-page" aria-labelledby="replay-title">
-      <p className="eyebrow">Mtoni catchment · Compare strategies</p>
-      <div className="page-heading">
-        <h1 id="replay-title">A second run, a different lens.</h1>
-        <p className="page-intro">
-          Replays start from the original mission’s saved initial state. They
-          create a new run and never overwrite the source.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Mtoni catchment · Compare strategies"
+        title="A second run, a different lens."
+        description="Replays start from the original mission’s saved initial state. They create a new run and never overwrite the source."
+        titleId="replay-title"
+        className="mb-6"
+      />
 
       {!sourceId && (
         <form

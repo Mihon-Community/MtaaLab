@@ -26,6 +26,22 @@ function mockViewport({ mobile }: { mobile: boolean }) {
   );
 }
 
+function mockTablet() {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn((query: string) => ({
+      matches: query.includes("min-width: 768px"),
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  );
+}
+
 function renderShell(url = "/report?session_id=session-1") {
   return render(
     <MemoryRouter initialEntries={[url]}>
@@ -86,6 +102,19 @@ describe("app navigation", () => {
       ).toHaveAttribute("aria-expanded", "false");
     });
     expect(document.cookie).toContain("sidebar_state=closed");
+  });
+
+  it("starts tablets with the keyboard-accessible icon rail", () => {
+    mockTablet();
+    renderShell();
+
+    const trigger = screen.getAllByRole("button", {
+      name: "Expand sidebar",
+    })[0];
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(
+      screen.getByRole("link", { name: "Learning report" }),
+    ).toHaveAttribute("aria-label", "Learning report");
   });
 
   it("opens navigation as a sheet on phones, closes on Escape and returns focus", async () => {

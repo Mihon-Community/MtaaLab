@@ -19,6 +19,7 @@ import {
   ReservoirTrendChart,
   ServiceLevelChart,
 } from "@/components/charts";
+import { PageHeader } from "@/components/layout/PageHeader";
 
 export function ReportPage() {
   const [searchParams] = useSearchParams();
@@ -111,14 +112,13 @@ export function ReportPage() {
 
   return (
     <section className="report-page" aria-labelledby="report-title">
-      <p className="eyebrow">Learning record · Evidence, not just a score</p>
-      <div className="page-heading">
-        <h1 id="report-title">{mission?.title ?? "Learning report"}</h1>
-        <p className="page-intro">
-          Review recorded outcomes alongside the decisions that produced them.
-          Feedback is formative and is not an official grade.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Learning record · Evidence, not just a score"
+        title={mission?.title ?? "Learning report"}
+        description="Review recorded outcomes alongside the decisions that produced them. Feedback is formative and is not an official grade."
+        titleId="report-title"
+        className="mb-6"
+      />
 
       {loading && (
         <p className="loading-state" role="status">

@@ -4,6 +4,7 @@ import { AudioControls } from "../../components/AudioControls";
 import { ApiError, createSimulation, getMission } from "../../services/api";
 import { formatGradeBand } from "../../lib/utils";
 import type { MissionDetail } from "../../types/api";
+import { PageHeader } from "@/components/layout/PageHeader";
 
 export function BriefingPage() {
   const [searchParams] = useSearchParams();
@@ -105,13 +106,15 @@ export function BriefingPage() {
 
   return (
     <section aria-labelledby="briefing-title">
-      <p className="eyebrow">Mission desk · Briefing</p>
       {!missionId && (
         <>
-          <h1 id="briefing-title">Choose a mission first.</h1>
-          <p className="page-intro">
-            Select an assigned mission from the lobby to read its briefing.
-          </p>
+          <PageHeader
+            eyebrow="Mission desk · Briefing"
+            title="Choose a mission first."
+            description="Select an assigned mission from the lobby to read its briefing."
+            titleId="briefing-title"
+            className="mb-6"
+          />
           <Link className="primary-action" to="/">
             Back to mission lobby
           </Link>
@@ -143,13 +146,13 @@ export function BriefingPage() {
       )}
       {!loading && !error && mission && (
         <>
-          <div className="page-heading">
-            <p className="eyebrow">
-              {mission.subject} · {formatGradeBand(mission.grade_band)}
-            </p>
-            <h1 id="briefing-title">{mission.title}</h1>
-            <p className="page-intro">{mission.description}</p>
-          </div>
+          <PageHeader
+            eyebrow={`${mission.subject} · ${formatGradeBand(mission.grade_band)}`}
+            title={mission.title}
+            description={mission.description}
+            titleId="briefing-title"
+            className="mb-6"
+          />
 
           <div className="briefing-layout">
             <article className="surface-card">
