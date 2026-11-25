@@ -1,9 +1,18 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { ThemeProvider } from "@/lib/theme";
 import { TopNav } from "./TopNav";
+
+beforeEach(() => {
+  vi.stubEnv("VITE_SUPABASE_URL", "https://example.supabase.co");
+  vi.stubEnv("VITE_SUPABASE_PUBLISHABLE_KEY", "ci-placeholder-public-key");
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 function renderNav(url = "/simulation?session_id=session-1") {
   return render(
@@ -46,7 +55,9 @@ describe("top navigation", () => {
     );
 
     expect(
-      await screen.findByText("Sign-in is not configured for this installation."),
+      await screen.findByText(
+        "Sign-in is not configured for this installation.",
+      ),
     ).toBeInTheDocument();
   });
 });

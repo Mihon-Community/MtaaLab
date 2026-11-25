@@ -1,11 +1,8 @@
-import { readFileSync } from "node:fs";
+import parityFixture from "./engine-parity.fixture.json";
 import { describe, expect, it } from "vitest";
 import { calculateNextState, EngineValidationError } from "./engine";
 import { MTONI_SCENARIO } from "./scenario";
 import type { DecisionRequest, SimulationState } from "../../types/api";
-
-const FIXTURE =
-  "C:/Users/USER/AppData/Local/hermes/cache/scratch/mtaa_expected.json";
 
 const ACTIONS: DecisionRequest[] = [
   {
@@ -42,11 +39,6 @@ const ACTIONS: DecisionRequest[] = [
 
 describe("demo engine parity", () => {
   it("matches the FastAPI engine turn for turn", () => {
-    const expected = JSON.parse(readFileSync(FIXTURE, "utf8")) as {
-      turns: unknown[];
-      invalid: { label: string; outcome: string }[];
-    };
-
     let state = JSON.parse(
       JSON.stringify(MTONI_SCENARIO.initial_state),
     ) as unknown as SimulationState;
@@ -56,7 +48,7 @@ describe("demo engine parity", () => {
       return result;
     });
 
-    expect(actual).toEqual(expected.turns);
+    expect(actual).toEqual(parityFixture.turns);
   });
 
   it("rejects the same invalid actions as the FastAPI validator", () => {
