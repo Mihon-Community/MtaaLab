@@ -133,7 +133,7 @@ describe("ReplayPage", () => {
       screen.getByRole("link", { name: "Continue the alternative run" }),
     ).toHaveAttribute(
       "href",
-      "/simulation?session_id=replay-1&mission_id=mission-1&compare_session_id=source-1",
+      "/simulation?sessionId=replay-1&missionId=mission-1&compare_session_id=source-1",
     );
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/api/simulations/source-1/replay"),

@@ -4,11 +4,17 @@ import type { Session } from "@supabase/supabase-js";
 import { Link } from "react-router-dom";
 import {
   ApiError,
+  createMobileJoinCode,
   getMission,
   getMissions,
+  getMobileRoster,
   getSimulationReport,
-  apiFetch,
 } from "../../services/api";
+import {
+  metricDisplayValue,
+  metricsForScenario,
+  stateRecord,
+} from "../../lib/scenarioMetrics";
 import { isDemoMode } from "../../services/demo";
 import { getSupabaseClient } from "../../services/supabase";
 import type {
@@ -17,7 +23,6 @@ import type {
   MissionReport,
   MobileJoinCodeResponse,
   MobileRosterClass,
-  MobileRosterResponse,
 } from "../../types/api";
 
 export function TeacherPage() {
@@ -43,6 +48,7 @@ export function TeacherPage() {
   const [signingIn, setSigningIn] = useState(false);
   const [missionsError, setMissionsError] = useState<string | null>(null);
   const [classesError, setClassesError] = useState<string | null>(null);
+  const [joinCodeError, setJoinCodeError] = useState<string | null>(null);
   const [reportError, setReportError] = useState<string | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
   const [missionAttempt, setMissionAttempt] = useState(0);
@@ -104,7 +110,7 @@ export function TeacherPage() {
 
     setLoadingClasses(true);
     setClassesError(null);
-    void apiFetch<MobileRosterResponse>("/api/mobile/classes")
+    void getMobileRoster()
       .then(({ classes: roster }) => {
         if (active) setClasses(roster);
       })
@@ -148,19 +154,13 @@ export function TeacherPage() {
     event.preventDefault();
     if (!classId || !studentId || creatingCode) return;
     setCreatingCode(true);
-    setClassesError(null);
+    setJoinCodeError(null);
     setJoinCode(null);
     try {
-      const result = await apiFetch<MobileJoinCodeResponse>(
-        "/api/mobile/join-codes",
-        {
-          method: "POST",
-          body: JSON.stringify({ class_id: classId, student_id: studentId }),
-        },
-      );
+      const result = await createMobileJoinCode(classId, studentId);
       setJoinCode(result);
     } catch (cause) {
-      setClassesError(describeError(cause));
+      setJoinCodeError(describeError(cause));
     } finally {
       setCreatingCode(false);
     }
@@ -313,7 +313,9 @@ export function TeacherPage() {
                   <p>{mission.description}</p>
                 </div>
                 <span className="teacher-grade">
-                  Grade {mission.grade_band}
+                  {mission.grade_band === "Teacher assigned"
+                    ? "Teacher assigned"
+                    : `Grade ${mission.grade_band}`}
                 </span>
               </article>
             ))}
@@ -358,7 +360,7 @@ export function TeacherPage() {
                 No active class learners are available for this account.
               </p>
             )}
-            {!loadingClasses && classes.length > 0 && (
+            {!loadingClasses && !classesError && classes.length > 0 && (
               <form
                 className="auth-form teacher-code-form"
                 onSubmit={(event) => void issueCode(event)}
@@ -371,6 +373,7 @@ export function TeacherPage() {
                       setClassId(event.target.value);
                       setStudentId("");
                       setJoinCode(null);
+                      setJoinCodeError(null);
                     }}
                     required
                   >
@@ -389,6 +392,7 @@ export function TeacherPage() {
                     onChange={(event) => {
                       setStudentId(event.target.value);
                       setJoinCode(null);
+                      setJoinCodeError(null);
                     }}
                     required
                     disabled={!selectedClass}
@@ -408,6 +412,11 @@ export function TeacherPage() {
                   {creatingCode ? "Creating…" : "Create one-time code"}
                 </button>
               </form>
+            )}
+            {joinCodeError && (
+              <div className="notice-card notice-card-error" role="alert">
+                <p>{joinCodeError}</p>
+              </div>
             )}
             {joinCode && (
               <article className="join-code-card" aria-live="polite">
@@ -505,14 +514,19 @@ export function TeacherPage() {
                 <span className="metric-label">Decisions</span>
                 <strong>{report.decisions.length}</strong>
               </div>
-              <div className="report-overview-card">
-                <span className="metric-label">Wellbeing</span>
-                <strong>{Math.round(report.outcomes.wellbeing)}%</strong>
-              </div>
-              <div className="report-overview-card">
-                <span className="metric-label">Crop health</span>
-                <strong>{Math.round(report.outcomes.crop_health)}%</strong>
-              </div>
+              {metricsForScenario(
+                reportMission.scenario_id,
+                reportMission.units,
+              )
+                .slice(0, 2)
+                .map((metric) => (
+                  <div className="report-overview-card" key={metric.key}>
+                    <span className="metric-label">{metric.label}</span>
+                    <strong>
+                      {metricDisplayValue(metric, stateRecord(report.outcomes))}
+                    </strong>
+                  </div>
+                ))}
             </div>
             <p className="form-hint">
               These are recorded simulation values and formative evidence, not a
@@ -535,8 +549,12 @@ function describeError(error: unknown) {
   if (error instanceof ApiError) {
     if (error.status === 401)
       return "Your session is not signed in or has expired. Sign in, then retry.";
+    if (error.status === 403)
+      return "This teacher page needs a teacher account with access to the class.";
     if (error.status === 404)
-      return "This mission or report is not available in your class scope.";
+      return "This mission, class, or report is not available in your school scope.";
+    if (error.status === 503)
+      return "Phone linking is temporarily unavailable. Ask an administrator to finish the SMS configuration.";
   }
   return "The request could not be completed. Check your connection and try again.";
 }

@@ -7,12 +7,18 @@ import {
   getSimulationReport,
   getSimulationState,
 } from "../../services/api";
+import {
+  numericValue,
+  metricsForScenario,
+  stateRecord,
+} from "../../lib/scenarioMetrics";
 import type {
   MissionReport,
   Sector,
   SessionStateResponse,
 } from "../../types/api";
 
+type RunState = Record<string, unknown>;
 const sectors: Sector[] = ["households", "school", "clinic", "farms"];
 
 export function ReplayPage() {
@@ -21,12 +27,10 @@ export function ReplayPage() {
   const replayId = searchParams.get("replay_session_id");
   const missionIdParam = searchParams.get("mission_id");
   const [sourceInput, setSourceInput] = useState(sourceId ?? "");
-  const [sourceState, setSourceState] = useState<SessionStateResponse | null>(
-    null,
-  );
-  const [replayState, setReplayState] = useState<SessionStateResponse | null>(
-    null,
-  );
+  const [sourceState, setSourceState] =
+    useState<SessionStateResponse<RunState> | null>(null);
+  const [replayState, setReplayState] =
+    useState<SessionStateResponse<RunState> | null>(null);
   const [sourceReport, setSourceReport] = useState<MissionReport | null>(null);
   const [replayReport, setReplayReport] = useState<MissionReport | null>(null);
   const [loading, setLoading] = useState(Boolean(sourceId));
@@ -59,7 +63,7 @@ export function ReplayPage() {
     void (async () => {
       try {
         const [source, sourceRun] = await Promise.all([
-          getSimulationState(sourceId),
+          getSimulationState<RunState>(sourceId),
           getSimulationReport(sourceId),
         ]);
         if (active) {
@@ -68,7 +72,7 @@ export function ReplayPage() {
         }
         if (replayId) {
           const [alternative, alternativeRun] = await Promise.all([
-            getSimulationState(replayId),
+            getSimulationState<RunState>(replayId),
             getSimulationReport(replayId),
           ]);
           if (active) {
@@ -107,6 +111,7 @@ export function ReplayPage() {
     }
     try {
       const replay = await createReplay(sourceId, replayRequest.current.key);
+      replayRequest.current = null;
       setSearchParams({
         source_session_id: sourceId,
         replay_session_id: replay.session_id,
@@ -124,10 +129,16 @@ export function ReplayPage() {
   }
 
   const missionId = missionIdParam ?? sourceReport?.mission_id;
+  const scenarioId = sourceState?.scenario_id ?? "mtoni";
+  const metrics = metricsForScenario(scenarioId);
+  const sourceValues = stateRecord(sourceState?.state);
+  const replayValues = stateRecord(replayState?.state);
+  const sourceServiceLevels = stateRecord(sourceValues.service_levels);
+  const replayServiceLevels = stateRecord(replayValues.service_levels);
 
   return (
     <section className="replay-page" aria-labelledby="replay-title">
-      <p className="eyebrow">Mtoni catchment · Compare strategies</p>
+      <p className="eyebrow">Simulation replay · Compare strategies</p>
       <div className="page-heading">
         <h1 id="replay-title">A second run, a different lens.</h1>
         <p className="page-intro">
@@ -239,41 +250,29 @@ export function ReplayPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  <ComparisonRow
-                    label="Reservoir"
-                    original={sourceState.state.reservoir_level}
-                    alternative={replayState.state.reservoir_level}
-                    suffix=" water units"
-                  />
-                  <ComparisonRow
-                    label="Budget remaining"
-                    original={sourceState.state.budget_remaining}
-                    alternative={replayState.state.budget_remaining}
-                    suffix=" credits"
-                  />
-                  <ComparisonRow
-                    label="Wellbeing index"
-                    original={sourceState.state.wellbeing}
-                    alternative={replayState.state.wellbeing}
-                    suffix="%"
-                  />
-                  <ComparisonRow
-                    label="Crop health"
-                    original={sourceState.state.crop_health}
-                    alternative={replayState.state.crop_health}
-                    suffix="%"
-                  />
-                  {sectors.map((sector) => (
+                  {metrics.map((metric) => (
                     <ComparisonRow
-                      key={sector}
-                      label={`${formatLabel(sector)} service`}
-                      original={sourceState.state.service_levels[sector] * 100}
-                      alternative={
-                        replayState.state.service_levels[sector] * 100
-                      }
-                      suffix="%"
+                      key={metric.key}
+                      label={metric.label}
+                      original={numericValue(sourceValues, metric.key)}
+                      alternative={numericValue(replayValues, metric.key)}
+                      unit={metric.unit}
                     />
                   ))}
+                  {scenarioId === "mtoni" &&
+                    sectors.map((sector) => (
+                      <ComparisonRow
+                        key={sector}
+                        label={`${formatLabel(sector)} service`}
+                        original={
+                          numericValue(sourceServiceLevels, sector) * 100
+                        }
+                        alternative={
+                          numericValue(replayServiceLevels, sector) * 100
+                        }
+                        unit="%"
+                      />
+                    ))}
                 </tbody>
               </table>
             </div>
@@ -300,7 +299,7 @@ export function ReplayPage() {
         <div className="report-footer-actions">
           <Link
             className="primary-action"
-            to={`/simulation?session_id=${encodeURIComponent(replayId)}&mission_id=${encodeURIComponent(missionId ?? "")}&compare_session_id=${encodeURIComponent(sourceId)}`}
+            to={`/simulation?sessionId=${encodeURIComponent(replayId)}&missionId=${encodeURIComponent(missionId ?? "")}&compare_session_id=${encodeURIComponent(sourceId)}`}
           >
             Continue the alternative run
           </Link>
@@ -327,29 +326,22 @@ function ComparisonRow({
   label,
   original,
   alternative,
-  suffix,
+  unit,
 }: {
   label: string;
   original: number;
   alternative: number;
-  suffix: string;
+  unit: string;
 }) {
   const difference = alternative - original;
   return (
     <tr>
       <th scope="row">{label}</th>
-      <td>
-        {formatNumber(original)}
-        {suffix}
-      </td>
-      <td>
-        {formatNumber(alternative)}
-        {suffix}
-      </td>
+      <td>{formatWithUnit(original, unit)}</td>
+      <td>{formatWithUnit(alternative, unit)}</td>
       <td>
         {difference > 0 ? "+" : ""}
-        {formatNumber(difference)}
-        {suffix}
+        {formatWithUnit(difference, unit)}
       </td>
     </tr>
   );
@@ -375,7 +367,7 @@ function DecisionSummary({
           ))}
         </ol>
       ) : (
-        <p className="briefing-description">No interventions recorded yet.</p>
+        <p className="briefing-description">No decisions recorded yet.</p>
       )}
     </section>
   );
@@ -383,6 +375,12 @@ function DecisionSummary({
 
 function formatNumber(value: number) {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function formatWithUnit(value: number, unit: string) {
+  const number = formatNumber(value);
+  if (!unit) return number;
+  return unit === "%" ? `${number}%` : `${number} ${unit}`;
 }
 
 function formatLabel(value: string) {

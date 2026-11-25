@@ -1,6 +1,16 @@
 /** Mirrors backend/app/api/schemas.py; keep changes reviewed by both developers. */
 export type Sector = "households" | "school" | "clinic" | "farms";
 
+export type AiFeedbackStatus =
+  | "pending"
+  | "available"
+  | "ai_unavailable"
+  | "not_requested";
+
+export interface HealthResponse {
+  status: "ok";
+}
+
 export interface MissionListItem {
   id: string;
   title: string;
@@ -28,11 +38,12 @@ export interface ActionParameterDefinition {
 export interface MissionAction {
   action_type: string;
   label: string;
-  cost: number;
-  delay_turns: number;
-  one_time: boolean;
-  parameters: Record<string, ActionParameterDefinition>;
-  effect: Record<string, unknown>;
+  /** Cost and delay are optional; render them only when the catalogue defines them. */
+  cost?: number;
+  delay_turns?: number;
+  one_time?: boolean;
+  parameters?: Record<string, ActionParameterDefinition>;
+  effect?: Record<string, unknown>;
   choices?: Array<{ id: string; label: string }>;
   [key: string]: unknown;
 }
@@ -68,6 +79,7 @@ export interface ScheduledEffect {
   reduction_ratio: number;
 }
 
+/** State shape for the Mtoni Water Resilience scenario. */
 export interface SimulationState {
   current_turn: number;
   reservoir_level: number;
@@ -84,14 +96,53 @@ export interface SimulationState {
   pending_effects: ScheduledEffect[];
 }
 
-export interface SessionStateResponse {
+export interface SokoMarketState {
+  current_turn: number;
+  cash_credits: number;
+  stock_units: number;
+  selling_price: number;
+  total_sold: number;
+  total_spoiled: number;
+  completed_actions: string[];
+}
+
+export interface MtoniFeverState {
+  current_turn: number;
+  budget_tokens: number;
+  safe_water_points: number;
+  handwashing_points: number;
+  clinic_readiness: number;
+  pending_effects: Array<Record<string, unknown>>;
+  completed_actions: string[];
+}
+
+export interface ChamaCircleState {
+  current_turn: number;
+  pool_tokens: number;
+  reserve_tokens: number;
+  outstanding_tokens: number;
+  repayments_received: number;
+  delayed_tokens: number;
+  scheduled_repayments: Array<Record<string, unknown>>;
+  completed_actions: string[];
+}
+
+export type ScenarioState =
+  | SimulationState
+  | SokoMarketState
+  | MtoniFeverState
+  | ChamaCircleState;
+
+export interface SessionStateResponse<S = SimulationState> {
   session_id: string;
   turn: number;
   status: string;
-  state: SimulationState;
+  scenario_id: string;
+  state: S;
 }
 
-export interface SessionCreatedResponse extends SessionStateResponse {
+export interface SessionCreatedResponse<S = SimulationState>
+  extends SessionStateResponse<S> {
   mission_id: string;
 }
 
@@ -99,6 +150,44 @@ export interface DecisionRequest {
   action_type: string;
   parameters: Record<string, unknown>;
   expected_turn: number;
+}
+
+export interface DecisionResponse<S = SimulationState> {
+  session_id: string;
+  turn: number;
+  accepted: boolean;
+  state: S;
+  events: SimulationEvent[];
+  water_accounting?: WaterAccounting | null;
+  ai_feedback_status: AiFeedbackStatus;
+}
+
+export interface ReplayRequest {
+  label?: string | null;
+}
+
+export interface ReplayResponse extends SessionCreatedResponse {
+  parent_session_id: string;
+}
+
+export type ReflectionAnswerCode = "1" | "2" | "3";
+
+export interface ReflectionRequest {
+  turn_number: number;
+  answer_code: ReflectionAnswerCode;
+}
+
+export interface ReflectionResponse {
+  session_id: string;
+  turn_number: number;
+  answer_code: ReflectionAnswerCode;
+  misconception_tag: string;
+  accepted: true;
+  idempotent_replay: boolean;
+}
+
+export interface ReflectionStatusResponse {
+  reflection: ReflectionResponse | null;
 }
 
 export interface MobileRosterLearner {
@@ -126,11 +215,6 @@ export interface SimulationEvent {
   engine_version: string;
 }
 
-export interface SessionCreated extends SessionStateResponse {
-  mission_id: string;
-  scenario_id?: string;
-}
-
 export interface WaterAccounting {
   opening_reservoir: number;
   inflow: number;
@@ -140,50 +224,42 @@ export interface WaterAccounting {
   overflow: number;
 }
 
-export interface DecisionResponse {
-  session_id: string;
-  turn: number;
-  accepted: boolean;
-  state: SimulationState;
-  events: SimulationEvent[];
-  water_accounting?: WaterAccounting | null;
-  ai_feedback_status: string;
-}
-
-export interface HistoryEntry {
+export interface HistoryEntry<S = SimulationState> {
   turn: number;
   action: DecisionRequest | null;
   events: SimulationEvent[];
-  state: SimulationState;
+  state: S;
   state_hash: string | null;
   ai_feedback_status: string | null;
 }
 
-export interface HistoryResponse {
+export interface HistoryResponse<S = SimulationState> {
   session_id: string;
-  entries: HistoryEntry[];
+  entries: HistoryEntry<S>[];
   limit: number;
   offset: number;
   total: number;
 }
 
-export interface MissionReport {
+export interface MissionReport<S = Record<string, unknown>> {
   session_id: string;
   mission_id: string;
   status: string;
   current_turn: number;
-  outcomes: {
-    reservoir_level: number;
-    reservoir_capacity: number;
-    budget_remaining: number;
-    service_levels: Record<Sector, number>;
-    unmet_demand_by_sector: Record<Sector, number>;
-    crop_health: number;
-    wellbeing: number;
-  };
+  /** Scenario state snapshot; fields differ per scenario_id. */
+  outcomes: S;
   decisions: DecisionRequest[];
   events: SimulationEvent[];
-  assessment: Record<string, unknown> | null;
+  assessment: AssessmentReport | null;
+}
+
+export interface AssessmentReport {
+  rubric_version?: string;
+  evidence?: Record<string, unknown>;
+  feedback?: ReasoningAssessment | Record<string, unknown>;
+  source?: string | null;
+  ai_feedback_status?: string | null;
+  teacher_review_status?: string | null;
 }
 
 export interface CriterionFeedback {

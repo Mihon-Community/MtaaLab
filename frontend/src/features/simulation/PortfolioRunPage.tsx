@@ -1,35 +1,29 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { apiFetch } from "../../services/api";
-import type { MissionDetail } from "../../types/api";
+import {
+  ApiError,
+  createReplay,
+  getMission,
+  getReflection,
+  getSimulationHistory,
+  getSimulationState,
+  saveReflection,
+  submitDecision,
+} from "../../services/api";
+import type {
+  AiFeedbackStatus,
+  DecisionResponse,
+  MissionAction,
+  MissionDetail,
+  ReflectionAnswerCode,
+  ReflectionResponse,
+  SessionStateResponse,
+} from "../../types/api";
 import { PortfolioWorldCanvas } from "./PortfolioWorldCanvas";
 
-interface ConfirmedRun {
-  session_id: string;
-  mission_id: string;
-  turn: number;
-  status: string;
-  scenario_id: string;
-  state: Record<string, unknown>;
-}
-
-interface ReflectedChoice {
-  answer_code: string;
-  misconception_tag: string;
-}
-
-interface PortfolioDecisionResponse {
-  session_id: string;
-  turn: number;
-  accepted: boolean;
-  state: Record<string, unknown>;
-  events: Array<{
-    event_type: string;
-    turn_number: number;
-    payload: Record<string, unknown>;
-  }>;
-  ai_feedback_status: string;
-}
+type PortfolioState = Record<string, unknown>;
+type ConfirmedRun = SessionStateResponse<PortfolioState>;
+type PortfolioDecision = DecisionResponse<PortfolioState>;
 
 function key(): string {
   return (
@@ -38,69 +32,91 @@ function key(): string {
   );
 }
 
-function asNumber(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+function defaultParametersFor(action: MissionAction): Record<string, unknown> {
+  const preferred: Record<string, number> = {
+    household_reduction_ratio: 0.1,
+    farm_reduction_ratio: 0.1,
+    capacity_increase: 10,
+  };
+  const parameters: Record<string, unknown> = {};
+  for (const [name, definition] of Object.entries(action.parameters ?? {})) {
+    if (definition.allowed?.length) continue;
+    const candidate = preferred[name] ?? definition.minimum ?? 0;
+    const minimum = definition.minimum ?? candidate;
+    const maximum = definition.maximum ?? candidate;
+    parameters[name] = Math.min(maximum, Math.max(minimum, candidate));
+  }
+  return parameters;
 }
 
 export function PortfolioRunPage() {
   const { search } = useLocation();
   const navigate = useNavigate();
   const query = useMemo(() => new URLSearchParams(search), [search]);
-  const sessionId = query.get("sessionId") ?? "";
-  const missionId = query.get("missionId") ?? "";
+  const sessionId = query.get("sessionId") ?? query.get("session_id") ?? "";
+  const missionId = query.get("missionId") ?? query.get("mission_id") ?? "";
   const [mission, setMission] = useState<MissionDetail | null>(null);
   const [run, setRun] = useState<ConfirmedRun | null>(null);
-  const [lastDecision, setLastDecision] =
-    useState<PortfolioDecisionResponse | null>(null);
-  const [reflection, setReflection] = useState<ReflectedChoice | null>(null);
+  const [lastDecision, setLastDecision] = useState<PortfolioDecision | null>(
+    null,
+  );
+  const [reflection, setReflection] = useState<ReflectionResponse | null>(null);
   const [hintLevel, setHintLevel] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [attempt, setAttempt] = useState(0);
+  const pendingDecision = useRef<{ fingerprint: string; key: string } | null>(
+    null,
+  );
+
+  useEffect(() => {
+    setMission(null);
+    setRun(null);
+    setLastDecision(null);
+    setReflection(null);
+    setHintLevel(0);
+    setError("");
+    pendingDecision.current = null;
+  }, [missionId, sessionId]);
 
   const refreshState = useCallback(async () => {
-    const state = await apiFetch<ConfirmedRun>(
-      `/api/simulations/${sessionId}/state`,
-    );
+    const state = await getSimulationState<PortfolioState>(sessionId);
     setRun(state);
-    if (state.turn > 0) {
-      const [saved, history] = await Promise.all([
-        apiFetch<{ reflection: ReflectedChoice | null }>(
-          `/api/simulations/${sessionId}/reflections/${state.turn}`,
-        ),
-        apiFetch<{
-          entries: Array<{
-            turn: number;
-            action: {
-              action_type: string;
-              parameters: Record<string, unknown>;
-            } | null;
-            events: PortfolioDecisionResponse["events"];
-          }>;
-        }>(`/api/simulations/${sessionId}/history?limit=100`),
-      ]);
-      setReflection(saved.reflection);
-      setHintLevel(
-        saved.reflection?.misconception_tag === "hint-requested" ? 1 : 0,
-      );
-      const currentEntry = history.entries.find(
-        (entry) => entry.turn === state.turn,
-      );
-      setLastDecision(
-        currentEntry?.action
-          ? {
-              session_id: state.session_id,
-              turn: currentEntry.turn,
-              accepted: true,
-              state: state.state,
-              events: currentEntry.events,
-              ai_feedback_status: "not_requested",
-            }
-          : null,
-      );
-    } else {
+    if (state.turn <= 0) {
       setReflection(null);
       setLastDecision(null);
+      return;
     }
+
+    const [saved, history] = await Promise.all([
+      getReflection(sessionId, state.turn).catch((cause: unknown) => {
+        if (cause instanceof ApiError && cause.status === 404)
+          return { reflection: null };
+        throw cause;
+      }),
+      getSimulationHistory<PortfolioState>(sessionId, { limit: 100 }),
+    ]);
+    setReflection(saved.reflection);
+    setHintLevel(
+      saved.reflection?.misconception_tag === "hint-requested" ? 1 : 0,
+    );
+    const currentEntry = history.entries.find(
+      (entry) => entry.turn === state.turn,
+    );
+    setLastDecision(
+      currentEntry?.action
+        ? {
+            session_id: state.session_id,
+            turn: currentEntry.turn,
+            accepted: true,
+            state: state.state,
+            events: currentEntry.events,
+            ai_feedback_status:
+              (currentEntry.ai_feedback_status as AiFeedbackStatus | null) ??
+              "not_requested",
+          }
+        : null,
+    );
   }, [sessionId]);
 
   useEffect(() => {
@@ -108,8 +124,8 @@ export function PortfolioRunPage() {
     let alive = true;
     setError("");
     void Promise.all([
-      apiFetch<MissionDetail>(`/api/missions/${missionId}`),
-      apiFetch<ConfirmedRun>(`/api/simulations/${sessionId}/state`),
+      getMission(missionId),
+      getSimulationState<PortfolioState>(sessionId),
     ])
       .then(async ([detail, state]) => {
         if (!alive) return;
@@ -117,19 +133,12 @@ export function PortfolioRunPage() {
         setRun(state);
         if (state.turn > 0) {
           const [saved, history] = await Promise.all([
-            apiFetch<{ reflection: ReflectedChoice | null }>(
-              `/api/simulations/${sessionId}/reflections/${state.turn}`,
-            ),
-            apiFetch<{
-              entries: Array<{
-                turn: number;
-                action: {
-                  action_type: string;
-                  parameters: Record<string, unknown>;
-                } | null;
-                events: PortfolioDecisionResponse["events"];
-              }>;
-            }>(`/api/simulations/${sessionId}/history?limit=100`),
+            getReflection(sessionId, state.turn).catch((cause: unknown) => {
+              if (cause instanceof ApiError && cause.status === 404)
+                return { reflection: null };
+              throw cause;
+            }),
+            getSimulationHistory<PortfolioState>(sessionId, { limit: 100 }),
           ]);
           if (!alive) return;
           setReflection(saved.reflection);
@@ -146,7 +155,9 @@ export function PortfolioRunPage() {
               accepted: true,
               state: state.state,
               events: currentEntry.events,
-              ai_feedback_status: "not_requested",
+              ai_feedback_status:
+                (currentEntry.ai_feedback_status as AiFeedbackStatus | null) ??
+                "not_requested",
             });
           }
         }
@@ -158,72 +169,95 @@ export function PortfolioRunPage() {
     return () => {
       alive = false;
     };
-  }, [missionId, sessionId]);
+  }, [attempt, missionId, sessionId]);
 
-  async function submitDecision(
+  async function submitChoice(
     actionType: string,
     parameters: Record<string, unknown> = {},
   ) {
     if (!run || busy) return;
     setBusy(true);
     setError("");
+    const expectedTurn = run.turn;
+    const fingerprint = `${sessionId}:${expectedTurn}:${actionType}:${JSON.stringify(parameters)}`;
+    let request = pendingDecision.current;
+    if (request?.fingerprint !== fingerprint) {
+      request = { fingerprint, key: key() };
+      pendingDecision.current = request;
+    }
     try {
-      const result = await apiFetch<PortfolioDecisionResponse>(
-        `/api/simulations/${sessionId}/decisions`,
+      const result = await submitDecision<PortfolioState>(
+        sessionId,
         {
-          method: "POST",
-          body: JSON.stringify({
-            action_type: actionType,
-            parameters,
-            expected_turn: asNumber(run.state.current_turn),
-          }),
+          action_type: actionType,
+          parameters,
+          expected_turn: expectedTurn,
         },
-        key(),
+        request.key,
       );
+      pendingDecision.current = null;
       setLastDecision(result);
-      setRun((current) =>
-        current
-          ? {
-              ...current,
-              turn: result.turn,
-              state: result.state,
-              status:
-                result.turn >= (mission?.number_of_turns ?? 6)
-                  ? "completed"
-                  : "active",
-            }
-          : current,
-      );
+      setRun({
+        ...run,
+        turn: result.turn,
+        state: result.state,
+        status:
+          result.turn >= (mission?.number_of_turns ?? 6)
+            ? "completed"
+            : run.status,
+      });
       setReflection(null);
       setHintLevel(0);
-    } catch {
-      setError("The choice was not confirmed. Loading the last saved turn…");
+      try {
+        const confirmed = await getSimulationState<PortfolioState>(sessionId);
+        setRun(confirmed);
+      } catch {
+        // The decision response remains the confirmed snapshot; status will
+        // refresh on the next successful read.
+      }
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 409) {
+        setError(
+          "The session changed on the server. Loading the latest confirmed state; review it before choosing again.",
+        );
+      } else {
+        setError("The choice was not confirmed. Loading the last saved turn…");
+      }
       await refreshState().catch(() => undefined);
     } finally {
       setBusy(false);
     }
   }
 
-  async function submitReflection(answerCode: string) {
+  async function submitReflection(answerCode: ReflectionAnswerCode) {
     if (!run || busy) return;
     setBusy(true);
     setError("");
     try {
-      const saved = await apiFetch<ReflectedChoice>(
-        `/api/simulations/${sessionId}/reflections`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            turn_number: run.turn,
-            answer_code: answerCode,
-          }),
-        },
+      const saved = await saveReflection(
+        sessionId,
+        { turn_number: run.turn, answer_code: answerCode },
         `reflection-${sessionId}-${run.turn}`,
       );
       setReflection(saved);
       setHintLevel(saved.misconception_tag === "hint-requested" ? 1 : 0);
-    } catch {
-      setError("Your explanation was not recorded. Retry before continuing.");
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 409) {
+        setError(
+          "An explanation is already saved for this turn. It cannot be replaced.",
+        );
+        const existing = await getReflection(sessionId, run.turn).catch(
+          () => null,
+        );
+        if (existing?.reflection) {
+          setReflection(existing.reflection);
+          setHintLevel(
+            existing.reflection.misconception_tag === "hint-requested" ? 1 : 0,
+          );
+        }
+      } else {
+        setError("Your explanation was not recorded. Retry before continuing.");
+      }
     } finally {
       setBusy(false);
     }
@@ -233,13 +267,9 @@ export function PortfolioRunPage() {
     if (!run) return;
     setBusy(true);
     try {
-      const newRun = await apiFetch<{ session_id: string }>(
-        `/api/simulations/${sessionId}/replay`,
-        { method: "POST", body: JSON.stringify({}) },
-        key(),
-      );
+      const newRun = await createReplay(sessionId, key());
       navigate(
-        `/simulation?missionId=${missionId}&sessionId=${newRun.session_id}`,
+        `/simulation?missionId=${encodeURIComponent(missionId)}&sessionId=${encodeURIComponent(newRun.session_id)}`,
       );
     } catch {
       setError("Could not start a replay. Your completed run is still saved.");
@@ -260,17 +290,33 @@ export function PortfolioRunPage() {
     return (
       <section>
         <h1>Loading saved game</h1>
-        {error && <p role="alert">{error}</p>}
+        {error && (
+          <div className="notice-card notice-card-error" role="alert">
+            <p>{error}</p>
+            <button
+              className="notice-action"
+              type="button"
+              onClick={() => setAttempt((current) => current + 1)}
+            >
+              Reconnect and retry
+            </button>
+          </div>
+        )}
         <Link to="/">Back to games</Link>
       </section>
     );
   }
 
+  const scenarioId = run.scenario_id || mission.scenario_id;
   const completed =
     run.status === "completed" || run.turn >= mission.number_of_turns;
   const reflectionChoices = mission.reflection_choices ?? {};
+  const requiresReflection =
+    scenarioId !== "mtoni" && Object.keys(reflectionChoices).length > 0;
   const canChoose =
-    !busy && !completed && (!lastDecision || Boolean(reflection));
+    !busy &&
+    !completed &&
+    (!requiresReflection || !lastDecision || Boolean(reflection));
   const marketAction = mission.action_catalogue.find(
     (action) => action.action_type === "market_plan",
   );
@@ -284,9 +330,14 @@ export function PortfolioRunPage() {
     (action) => action.action_type !== "market_plan",
   );
   const allocationPolicies = mission.allocation_policies;
+  const costUnit =
+    mission.units.budget ??
+    mission.units.fund ??
+    mission.units.cash ??
+    "fictional tokens";
 
-  function renderAction(action: Record<string, unknown>) {
-    const actionType = String(action.action_type);
+  function renderAction(action: MissionAction) {
+    const actionType = action.action_type;
     const label = String(action.label ?? actionType).replaceAll("_", " ");
     if (actionType === "change_allocation") {
       return allocationPolicies.map((policy) => (
@@ -294,29 +345,23 @@ export function PortfolioRunPage() {
           key={String(policy.policy_id)}
           disabled={!canChoose}
           onClick={() =>
-            void submitDecision(actionType, { policy_id: policy.policy_id })
+            void submitChoice(actionType, { policy_id: policy.policy_id })
           }
         >
           {label}: {String(policy.label ?? policy.policy_id)}
         </button>
       ));
     }
-    const parameters: Record<string, unknown> =
-      {
-        conservation_campaign: { household_reduction_ratio: 0.1 },
-        efficient_irrigation: { farm_reduction_ratio: 0.1 },
-        install_storage: { capacity_increase: 10 },
-      }[actionType] ?? {};
     return (
       <button
         key={actionType}
         disabled={!canChoose}
-        onClick={() => void submitDecision(actionType, parameters)}
+        onClick={() =>
+          void submitChoice(actionType, defaultParametersFor(action))
+        }
       >
         {label}
-        {typeof action.cost === "number"
-          ? ` · ${action.cost} fictional tokens`
-          : ""}
+        {typeof action.cost === "number" ? ` · ${action.cost} ${costUnit}` : ""}
       </button>
     );
   }
@@ -334,7 +379,11 @@ export function PortfolioRunPage() {
         <Link to="/">Games</Link>
       </div>
 
-      <PortfolioWorldCanvas scenarioId={run.scenario_id} state={run.state} />
+      <PortfolioWorldCanvas
+        scenarioId={scenarioId}
+        state={run.state}
+        units={mission.units}
+      />
 
       <section className="confirmed-state" aria-label="Confirmed game state">
         <h2>Saved state</h2>
@@ -373,7 +422,7 @@ export function PortfolioRunPage() {
         </section>
       )}
 
-      {lastDecision && !reflection && (
+      {lastDecision && requiresReflection && !reflection && (
         <section
           className="reflection-panel"
           aria-labelledby="reflection-title"
@@ -387,7 +436,9 @@ export function PortfolioRunPage() {
               <button
                 key={code}
                 disabled={busy}
-                onClick={() => void submitReflection(code)}
+                onClick={() =>
+                  void submitReflection(code as ReflectionAnswerCode)
+                }
               >
                 {code}. {choice.label}
               </button>
@@ -430,23 +481,31 @@ export function PortfolioRunPage() {
           <h2>Game complete</h2>
           <p>
             Your confirmed turns and choices are saved. Compare them with a
-            replay.
+            replay or review the learning report.
           </p>
-          <button disabled={busy} onClick={() => void replay()}>
-            Replay game
-          </button>
+          <div className="report-footer-actions">
+            <button disabled={busy} onClick={() => void replay()}>
+              Replay game
+            </button>
+            <Link
+              className="text-link"
+              to={`/report?session_id=${encodeURIComponent(sessionId)}`}
+            >
+              Open learning report
+            </Link>
+          </div>
         </section>
       ) : (
         <section aria-labelledby="decision-title">
           <h2 id="decision-title">Choose the next decision</h2>
-          {run.scenario_id === "soko_market" ? (
+          {scenarioId === "soko_market" ? (
             <div className="choice-list">
               {marketChoices.map((choice) => (
                 <button
                   key={choice.id}
                   disabled={!canChoose}
                   onClick={() =>
-                    void submitDecision("market_plan", { plan_id: choice.id })
+                    void submitChoice("market_plan", { plan_id: choice.id })
                   }
                 >
                   {choice.label}
@@ -458,9 +517,14 @@ export function PortfolioRunPage() {
               {gameActions.flatMap(renderAction)}
             </div>
           )}
-          {!canChoose && !busy && !completed && lastDecision && !reflection && (
-            <p>Record a short explanation before moving to the next turn.</p>
-          )}
+          {!canChoose &&
+            !busy &&
+            !completed &&
+            requiresReflection &&
+            lastDecision &&
+            !reflection && (
+              <p>Record a short explanation before moving to the next turn.</p>
+            )}
           {busy && (
             <p role="status">
               Saving… the display will update after confirmation.

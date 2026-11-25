@@ -153,7 +153,7 @@ export function LobbyPage() {
   return (
     <section aria-labelledby="lobby-title">
       <div className="page-heading">
-        <p className="eyebrow">Mtoni catchment · Mission desk</p>
+        <p className="eyebrow">Mission desk · Assigned learning games</p>
         <h1 id="lobby-title">A living world, shaped by your choices.</h1>
         <p className="page-intro">
           Explore the missions assigned to your class. Each one asks you to
@@ -225,7 +225,13 @@ export function LobbyPage() {
               <p className="mission-description">{mission.description}</p>
               <div className="mission-card-meta">
                 <span>
-                  Grade band <strong>{mission.grade_band}</strong>
+                  {mission.grade_band === "Teacher assigned" ? (
+                    "Teacher assigned"
+                  ) : (
+                    <>
+                      Grade band <strong>{mission.grade_band}</strong>
+                    </>
+                  )}
                 </span>
                 <span>Scenario v{mission.scenario_version}</span>
               </div>
@@ -242,7 +248,7 @@ export function LobbyPage() {
               mission.last_session_id ? (
                 <Link
                   className="briefing-link"
-                  to={`/simulation?session_id=${encodeURIComponent(mission.last_session_id)}&mission_id=${encodeURIComponent(mission.id)}`}
+                  to={`/simulation?sessionId=${encodeURIComponent(mission.last_session_id)}&missionId=${encodeURIComponent(mission.id)}`}
                 >
                   Continue saved mission
                 </Link>

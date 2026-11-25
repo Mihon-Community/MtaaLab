@@ -6,7 +6,8 @@ import type { MissionDetail } from "../../types/api";
 
 export function BriefingPage() {
   const [searchParams] = useSearchParams();
-  const missionId = searchParams.get("mission_id");
+  const missionId =
+    searchParams.get("mission_id") ?? searchParams.get("missionId");
   const navigate = useNavigate();
   const [mission, setMission] = useState<MissionDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -77,7 +78,7 @@ export function BriefingPage() {
         idempotency.current.key,
       );
       navigate(
-        `/simulation?session_id=${encodeURIComponent(session.session_id)}&mission_id=${encodeURIComponent(session.mission_id)}`,
+        `/simulation?sessionId=${encodeURIComponent(session.session_id)}&missionId=${encodeURIComponent(session.mission_id)}`,
       );
     } catch (cause) {
       setErrorStage("start");
@@ -144,7 +145,7 @@ export function BriefingPage() {
         <>
           <div className="page-heading">
             <p className="eyebrow">
-              {mission.subject} · Grade {mission.grade_band}
+              {mission.subject} · {mission.grade_band}
             </p>
             <h1 id="briefing-title">{mission.title}</h1>
             <p className="page-intro">{mission.description}</p>
@@ -169,10 +170,7 @@ export function BriefingPage() {
             <aside className="surface-card" aria-label="Mission details">
               <h2>Before you begin</h2>
               <p className="briefing-description">
-                Mtoni is a fictional East African community planning for a
-                prolonged water shortage. Rainfall, stored water, leaking
-                infrastructure, a limited budget, and community needs are
-                connected by the mission rules.
+                {scenarioIntro(mission.scenario_id)}
               </p>
               <dl className="briefing-facts">
                 <div>
@@ -188,14 +186,12 @@ export function BriefingPage() {
                       : ""}
                   </dd>
                 </div>
-                <div>
-                  <dt>Water unit</dt>
-                  <dd>{mission.units.water}</dd>
-                </div>
-                <div>
-                  <dt>Budget unit</dt>
-                  <dd>{mission.units.budget}</dd>
-                </div>
+                {Object.entries(mission.units).map(([name, unit]) => (
+                  <div key={name}>
+                    <dt>{formatLabel(name)} unit</dt>
+                    <dd>{unit}</dd>
+                  </div>
+                ))}
               </dl>
               <p className="form-hint">
                 Your starting values load from the simulation service when you
@@ -220,26 +216,37 @@ export function BriefingPage() {
           <div className="briefing-detail-grid">
             <section className="surface-card" aria-labelledby="rules-title">
               <p className="eyebrow">Transparent rules</p>
-              <h2 id="rules-title">Available interventions</h2>
+              <h2 id="rules-title">
+                {mission.scenario_id === "mtoni"
+                  ? "Available interventions"
+                  : "Available decisions"}
+              </h2>
               <p className="briefing-description">
                 The scenario defines the choices, costs, and parameter limits.
-                The simulation engine—not AI—calculates all water, budget, and
-                service outcomes.
+                The simulation engine—not AI—calculates all scenario outcomes.
               </p>
               <div className="briefing-action-list">
                 {mission.action_catalogue.map((action) => (
                   <article className="briefing-action" key={action.action_type}>
                     <div className="briefing-action-heading">
                       <h3>{action.label}</h3>
-                      <span>{action.cost} credits</span>
+                      {typeof action.cost === "number" && (
+                        <span>
+                          {action.cost}{" "}
+                          {mission.units.budget ??
+                            mission.units.fund ??
+                            mission.units.cash ??
+                            "credits"}
+                        </span>
+                      )}
                     </div>
                     <p>
-                      {effectSummary(action.effect.type)}
-                      {action.delay_turns > 0
+                      {effectSummary(action.effect?.type)}
+                      {(action.delay_turns ?? 0) > 0
                         ? ` Effect begins after ${action.delay_turns} turn${action.delay_turns === 1 ? "" : "s"}.`
                         : ""}
                     </p>
-                    {action.one_time && (
+                    {action.one_time === true && (
                       <span className="action-rule-tag">
                         One-time intervention
                       </span>
@@ -254,19 +261,28 @@ export function BriefingPage() {
               <h2 id="controls-title">How to play</h2>
               <ol className="controls-list">
                 <li>
-                  Inspect a location on the map or choose it from the list.
+                  {mission.scenario_id === "mtoni"
+                    ? "Inspect a location on the map or choose it from the list."
+                    : "Review the confirmed snapshot and the decisions available this turn."}
                 </li>
-                <li>Choose one intervention and review its cost and effect.</li>
+                <li>Choose one option and review its cost and effect.</li>
                 <li>
                   Confirm once to submit your decision and advance one turn.
                 </li>
                 <li>Review the server-confirmed state and saved timeline.</li>
               </ol>
-              <p className="briefing-description">
-                Every map location has a keyboard- and touch-accessible list
-                control. Use the display controls in the header to adjust text
-                size or contrast. Reduced-motion preferences are respected.
-              </p>
+              {mission.scenario_id === "mtoni" ? (
+                <p className="briefing-description">
+                  Every map location has a keyboard- and touch-accessible list
+                  control. Use the display controls in the header to adjust text
+                  size or contrast. Reduced-motion preferences are respected.
+                </p>
+              ) : (
+                <p className="briefing-description">
+                  Use the display controls in the header to adjust text size or
+                  contrast. Reduced-motion preferences are respected.
+                </p>
+              )}
               <AudioControls
                 text={[
                   mission.title,
@@ -295,4 +311,20 @@ function effectSummary(effectType: unknown) {
     default:
       return "The mission engine applies this intervention using its configured rules.";
   }
+}
+
+function formatLabel(value: string) {
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function scenarioIntro(scenarioId: string) {
+  if (scenarioId === "soko_market")
+    return "Run a fictional market stall. Order stock, set a selling price, and respond to demand and spoilage across the market days. All values are game units, not real money.";
+  if (scenarioId === "mtoni_fever")
+    return "Plan fictional prevention and clinic-readiness improvements for a community. Some actions take effect after a delay, so sequence matters. These are not real health outcomes.";
+  if (scenarioId === "chama_circle")
+    return "Manage a fictional group fund. Balance loans, reserves, repayments, and delays while keeping the group’s rules. No real money is involved.";
+  return "Mtoni is a fictional East African community planning for a prolonged water shortage. Rainfall, stored water, leaking infrastructure, a limited budget, and community needs are connected by the mission rules.";
 }

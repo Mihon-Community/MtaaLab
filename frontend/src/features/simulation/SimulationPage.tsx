@@ -37,21 +37,104 @@ const PortfolioRunPage = lazy(() =>
 export function SimulationPage() {
   const { search } = useLocation();
   const query = new URLSearchParams(search);
-  if (query.has("sessionId") || query.has("missionId")) {
+  const sessionId = query.get("session_id") ?? query.get("sessionId");
+  const missionId = query.get("mission_id") ?? query.get("missionId");
+  if (sessionId) {
     return (
-      <Suspense fallback={<p role="status">Loading saved game…</p>}>
-        <PortfolioRunPage />
-      </Suspense>
+      <ScenarioSimulationRoute sessionId={sessionId} missionId={missionId} />
     );
   }
 
   return <MissionSimulationPage />;
 }
 
+/**
+ * The Mtoni scenario keeps its map/HUD composition; portfolio games use the
+ * shared PortfolioRunPage. The scenario comes from the authorized mission
+ * detail, never from a client-supplied identifier.
+ */
+function ScenarioSimulationRoute({
+  sessionId,
+  missionId,
+}: {
+  sessionId: string;
+  missionId: string | null;
+}) {
+  const [scenarioId, setScenarioId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    setScenarioId(null);
+    setError(null);
+    void (async () => {
+      try {
+        const resolvedMissionId =
+          missionId ?? (await getSimulationReport(sessionId)).mission_id;
+        const detail = await getMission(resolvedMissionId);
+        if (active) setScenarioId(detail.scenario_id);
+      } catch (cause) {
+        if (active) {
+          setError(
+            describeError(
+              cause,
+              "We couldn't load this simulation. Check your connection and try again.",
+            ),
+          );
+        }
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [attempt, missionId, sessionId]);
+
+  if (error) {
+    return (
+      <section aria-labelledby="simulation-title">
+        <p className="eyebrow">Simulation</p>
+        <h1 id="simulation-title">The world could not be loaded.</h1>
+        <div className="notice-card notice-card-error" role="alert">
+          <p>{error}</p>
+          <button
+            className="notice-action"
+            type="button"
+            onClick={() => setAttempt((current) => current + 1)}
+          >
+            Reconnect and retry
+          </button>
+        </div>
+        <Link className="text-link" to="/">
+          Mission lobby
+        </Link>
+      </section>
+    );
+  }
+
+  if (!scenarioId) {
+    return (
+      <p className="loading-state" role="status">
+        Loading the saved simulation…
+      </p>
+    );
+  }
+
+  if (scenarioId === "mtoni") return <MissionSimulationPage />;
+
+  return (
+    <Suspense fallback={<p role="status">Loading saved game…</p>}>
+      <PortfolioRunPage />
+    </Suspense>
+  );
+}
+
 function MissionSimulationPage() {
   const [searchParams] = useSearchParams();
-  const sessionId = searchParams.get("session_id");
-  const missionIdParam = searchParams.get("mission_id");
+  const sessionId =
+    searchParams.get("session_id") ?? searchParams.get("sessionId");
+  const missionIdParam =
+    searchParams.get("mission_id") ?? searchParams.get("missionId");
   const compareSessionId = searchParams.get("compare_session_id");
   const [session, setSession] = useState<SessionStateResponse | null>(null);
   const [mission, setMission] = useState<MissionDetail | null>(null);
@@ -188,7 +271,7 @@ function MissionSimulationPage() {
 
     setHistoryLoading(true);
     setHistoryError(null);
-    void getSimulationHistory(sessionId)
+    void getSimulationHistory(sessionId, { limit: 100 })
       .then((result) => {
         if (active) setHistory(result.entries);
       })
@@ -253,6 +336,7 @@ function MissionSimulationPage() {
         session_id: result.session_id,
         turn: result.turn,
         status: activeSession.status,
+        scenario_id: activeSession.scenario_id,
         state: result.state,
       };
       setSession(confirmed);

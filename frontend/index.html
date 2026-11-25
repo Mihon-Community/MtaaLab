@@ -18,7 +18,9 @@
               ? prefs.mode
               : "system";
           var resolved = mode === "system" ? (dark ? "dark" : "light") : mode;
-          var moreContrast = window.matchMedia("(prefers-contrast: more)").matches;
+          var moreContrast = window.matchMedia(
+            "(prefers-contrast: more)",
+          ).matches;
           var contrast =
             prefs.contrast === "high" || (!prefs.contrast && moreContrast)
               ? "high"
