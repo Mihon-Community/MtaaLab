@@ -5,6 +5,7 @@ import {
   ApiError,
   getMission,
   getSimulationDebrief,
+  getSimulationHistory,
   getSimulationReport,
 } from "../../services/api";
 import {
@@ -15,10 +16,20 @@ import {
 } from "../../lib/scenarioMetrics";
 import type {
   DebriefResponse,
+  HistoryEntry,
   MissionDetail,
   MissionReport,
   ReasoningAssessment,
+  Sector,
 } from "../../types/api";
+import {
+  BudgetTrendChart,
+  ReservoirTrendChart,
+  ServiceLevelChart,
+} from "@/components/charts";
+import { PageHeader } from "@/components/layout/PageHeader";
+
+const WATER_SECTORS: Sector[] = ["households", "school", "clinic", "farms"];
 
 export function ReportPage() {
   const [searchParams] = useSearchParams();
@@ -26,6 +37,7 @@ export function ReportPage() {
   const [report, setReport] = useState<MissionReport | null>(null);
   const [mission, setMission] = useState<MissionDetail | null>(null);
   const [debrief, setDebrief] = useState<DebriefResponse | null>(null);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [explanation, setExplanation] = useState("");
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -39,6 +51,7 @@ export function ReportPage() {
       setLoading(false);
       setReport(null);
       setMission(null);
+      setHistory([]);
       return () => {
         active = false;
       };
@@ -49,13 +62,18 @@ export function ReportPage() {
     setReport(null);
     setMission(null);
     setDebrief(null);
+    setHistory([]);
     void (async () => {
       try {
         const result = await getSimulationReport(sessionId);
-        const missionInfo = await getMission(result.mission_id);
+        const [missionInfo, savedHistory] = await Promise.all([
+          getMission(result.mission_id),
+          getSimulationHistory(sessionId).catch(() => null),
+        ]);
         if (active) {
           setReport(result);
           setMission(missionInfo);
+          setHistory(savedHistory?.entries ?? []);
         }
       } catch (cause) {
         if (active) setError(describeError(cause));
@@ -92,11 +110,13 @@ export function ReportPage() {
   if (!sessionId) {
     return (
       <section aria-labelledby="report-title">
-        <p className="eyebrow">Learning record</p>
-        <h1 id="report-title">Your learning report</h1>
-        <p className="page-intro">
-          Open a mission report from an active or completed simulation.
-        </p>
+        <PageHeader
+          eyebrow="Learning record"
+          title="Your learning report"
+          description="Open a mission report from an active or completed simulation."
+          titleId="report-title"
+          className="mb-6"
+        />
         <Link className="primary-action" to="/simulation">
           Return to simulation
         </Link>
@@ -106,14 +126,13 @@ export function ReportPage() {
 
   return (
     <section className="report-page" aria-labelledby="report-title">
-      <p className="eyebrow">Learning record · Evidence, not just a score</p>
-      <div className="page-heading">
-        <h1 id="report-title">{mission?.title ?? "Learning report"}</h1>
-        <p className="page-intro">
-          Review recorded outcomes alongside the decisions that produced them.
-          Feedback is formative and is not an official grade.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Learning record · Evidence, not just a score"
+        title={mission?.title ?? "Learning report"}
+        description="Review recorded outcomes alongside the decisions that produced them. Feedback is formative and is not an official grade."
+        titleId="report-title"
+        className="mb-6"
+      />
 
       {loading && (
         <p className="loading-state" role="status">
@@ -138,6 +157,7 @@ export function ReportPage() {
         <ReportContent
           report={report}
           mission={mission}
+          history={history}
           sessionId={sessionId}
           explanation={explanation}
           setExplanation={setExplanation}
@@ -154,6 +174,7 @@ export function ReportPage() {
 function ReportContent({
   report,
   mission,
+  history,
   sessionId,
   explanation,
   setExplanation,
@@ -164,6 +185,7 @@ function ReportContent({
 }: {
   report: MissionReport;
   mission: MissionDetail;
+  history: HistoryEntry[];
   sessionId: string;
   explanation: string;
   setExplanation: (value: string) => void;
@@ -175,6 +197,10 @@ function ReportContent({
   const outcomes = stateRecord(report.outcomes);
   const metrics = metricsForScenario(mission.scenario_id, mission.units);
   const serviceLevels = stateRecord(outcomes.service_levels);
+  const chartServiceLevels = sectorValues(serviceLevels);
+  const chartUnmetDemand = sectorValues(
+    stateRecord(outcomes.unmet_demand_by_sector),
+  );
   const rawAssessment: unknown = report.assessment;
   const savedAssessment = isReasoningAssessment(rawAssessment)
     ? rawAssessment
@@ -235,7 +261,12 @@ function ReportContent({
             />
           ))}
         </div>
-        {Object.keys(serviceLevels).length > 0 && (
+        {mission.scenario_id === "mtoni" && chartServiceLevels ? (
+          <ServiceLevelChart
+            serviceLevels={chartServiceLevels}
+            unmetDemand={chartUnmetDemand ?? undefined}
+          />
+        ) : Object.keys(serviceLevels).length > 0 ? (
           <>
             <h3 className="report-subheading">Community service levels</h3>
             <ul className="sector-list">
@@ -259,6 +290,12 @@ function ReportContent({
               })}
             </ul>
           </>
+        ) : null}
+        {mission.scenario_id === "mtoni" && history.length > 0 && (
+          <div className="mt-6 grid gap-6 lg:grid-cols-2">
+            <ReservoirTrendChart entries={history} unit={mission.units.water} />
+            <BudgetTrendChart entries={history} unit={mission.units.budget} />
+          </div>
         )}
       </section>
 
@@ -413,7 +450,7 @@ function ReportContent({
       <div className="report-footer-actions">
         <Link
           className="secondary-action"
-          to={`/simulation?sessionId=${encodeURIComponent(sessionId)}&missionId=${encodeURIComponent(mission.id)}`}
+          to={`/simulation?session_id=${encodeURIComponent(sessionId)}&mission_id=${encodeURIComponent(mission.id)}`}
         >
           Return to simulation
         </Link>
@@ -435,6 +472,26 @@ function Outcome({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </div>
   );
+}
+
+function sectorValues(
+  values: Record<string, unknown>,
+): Record<Sector, number> | null {
+  if (
+    !WATER_SECTORS.every(
+      (sector) =>
+        typeof values[sector] === "number" && Number.isFinite(values[sector]),
+    )
+  ) {
+    return null;
+  }
+
+  return {
+    households: values.households as number,
+    school: values.school as number,
+    clinic: values.clinic as number,
+    farms: values.farms as number,
+  };
 }
 
 function ReasoningFeedback({

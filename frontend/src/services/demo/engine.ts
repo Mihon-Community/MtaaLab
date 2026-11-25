@@ -41,6 +41,29 @@ export interface TurnResult {
   idempotent_replay: boolean;
 }
 
+/** Mutable private copy of the canonical state used during one calculation. */
+interface DraftState {
+  leakage: number;
+  demand_by_sector: Record<Sector, number>;
+  service_levels: Record<Sector, number>;
+  unmet_demand_by_sector: Record<Sector, number>;
+  allocation_policy: string;
+  reservoir_capacity: number;
+  budget_remaining: number;
+  used_actions: string[];
+  pending_effects: ScheduledEffectDraft[];
+  [key: string]: unknown;
+}
+
+interface ScheduledEffectDraft {
+  action_type?: string;
+  apply_turn: number;
+  effect_type?: string;
+  sector: Sector;
+  reduction_ratio: number;
+  [key: string]: unknown;
+}
+
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
@@ -212,7 +235,7 @@ function validateAction(
 }
 
 function applyEffect(
-  draft: SimulationState,
+  draft: DraftState,
   effect: Record<string, unknown>,
   parameters: Record<string, unknown>,
 ): void {
@@ -244,12 +267,12 @@ function applyEffect(
   throw new EngineValidationError("unsupported configured action effect");
 }
 
-function applyDueEffects(draft: SimulationState, turnNumber: number): void {
-  const pending: SimulationState["pending_effects"] = [];
+function applyDueEffects(draft: DraftState, turnNumber: number): void {
+  const pending: ScheduledEffectDraft[] = [];
   for (const effect of draft.pending_effects) {
-    if (effect.apply_turn <= turnNumber) {
-      const sector = effect.sector;
-      const ratio = effect.reduction_ratio;
+    if (Number(effect.apply_turn) <= turnNumber) {
+      const sector = String(effect.sector) as Sector;
+      const ratio = Number(effect.reduction_ratio);
       draft.demand_by_sector[sector] = Math.max(
         0,
         Number(draft.demand_by_sector[sector]) * (1 - ratio),
@@ -382,7 +405,7 @@ export function calculateNextState(
   }
   const inflow = Number(scenario.inflow_schedule[nextTurn - 1]);
 
-  const draft: SimulationState = {
+  const draft: DraftState = {
     ...state,
     demand_by_sector: { ...state.demand_by_sector },
     service_levels: { ...state.service_levels },

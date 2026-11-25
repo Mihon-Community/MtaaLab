@@ -15,6 +15,7 @@ import {
   metricsForScenario,
   stateRecord,
 } from "../../lib/scenarioMetrics";
+import { formatGradeBand } from "../../lib/utils";
 import { isDemoMode } from "../../services/demo";
 import { getSupabaseClient } from "../../services/supabase";
 import type {
@@ -23,7 +24,12 @@ import type {
   MissionReport,
   MobileJoinCodeResponse,
   MobileRosterClass,
+  Sector,
 } from "../../types/api";
+import { ServiceLevelChart } from "@/components/charts";
+import { PageHeader } from "@/components/layout/PageHeader";
+
+const WATER_SECTORS: Sector[] = ["households", "school", "clinic", "farms"];
 
 export function TeacherPage() {
   const supabase = getSupabaseClient();
@@ -234,17 +240,23 @@ export function TeacherPage() {
   }
 
   const selectedClass = classes.find((item) => item.class_id === classId);
+  const reportOutcomes = report ? stateRecord(report.outcomes) : {};
+  const reportServiceLevels = sectorValues(
+    stateRecord(reportOutcomes.service_levels),
+  );
+  const reportUnmetDemand = sectorValues(
+    stateRecord(reportOutcomes.unmet_demand_by_sector),
+  );
 
   return (
     <section className="teacher-page" aria-labelledby="teacher-title">
-      <p className="eyebrow">Educator workspace</p>
-      <div className="page-heading">
-        <h1 id="teacher-title">Teacher console</h1>
-        <p className="page-intro">
-          Review missions assigned to your classes, inspect authorized learner
-          reports, and issue feature-phone access codes.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Educator workspace"
+        title="Teacher console"
+        description="Review missions assigned to your classes, inspect authorized learner reports, and issue feature-phone access codes."
+        titleId="teacher-title"
+        className="mb-6"
+      />
       {supabase && session && (
         <button
           className="notice-action"
@@ -313,9 +325,7 @@ export function TeacherPage() {
                   <p>{mission.description}</p>
                 </div>
                 <span className="teacher-grade">
-                  {mission.grade_band === "Teacher assigned"
-                    ? "Teacher assigned"
-                    : `Grade ${mission.grade_band}`}
+                  {formatGradeBand(mission.grade_band)}
                 </span>
               </article>
             ))}
@@ -528,6 +538,12 @@ export function TeacherPage() {
                   </div>
                 ))}
             </div>
+            {reportMission.scenario_id === "mtoni" && reportServiceLevels ? (
+              <ServiceLevelChart
+                serviceLevels={reportServiceLevels}
+                unmetDemand={reportUnmetDemand ?? undefined}
+              />
+            ) : null}
             <p className="form-hint">
               These are recorded simulation values and formative evidence, not a
               student grade.
@@ -563,4 +579,24 @@ function formatLabel(value: string) {
   return value
     .replaceAll("_", " ")
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function sectorValues(
+  values: Record<string, unknown>,
+): Record<Sector, number> | null {
+  if (
+    !WATER_SECTORS.every(
+      (sector) =>
+        typeof values[sector] === "number" && Number.isFinite(values[sector]),
+    )
+  ) {
+    return null;
+  }
+
+  return {
+    households: values.households as number,
+    school: values.school as number,
+    clinic: values.clinic as number,
+    farms: values.farms as number,
+  };
 }

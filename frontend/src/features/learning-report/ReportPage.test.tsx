@@ -75,6 +75,16 @@ describe("ReportPage", () => {
           });
         }
 
+        if (url.includes("/api/simulations/session-1/history")) {
+          return response({
+            session_id: "session-1",
+            entries: [],
+            limit: 100,
+            offset: 0,
+            total: 0,
+          });
+        }
+
         if (
           url.endsWith("/api/simulations/session-1/debrief") &&
           init?.method === "POST"

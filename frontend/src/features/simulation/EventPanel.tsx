@@ -1,4 +1,10 @@
-import type { DebriefResponse, SimulationEvent } from "../../types/api";
+import type {
+  DebriefResponse,
+  SimulationEvent,
+  WaterAccounting,
+} from "../../types/api";
+import { WaterAccountingChart } from "@/components/charts";
+import { WaterAccountingPanel } from "./WaterAccountingPanel";
 
 interface EventPanelProps {
   events: SimulationEvent[];
@@ -8,6 +14,8 @@ interface EventPanelProps {
   isLoadingReflection: boolean;
   reflectionError: string | null;
   onRequestReflection: () => void;
+  accounting?: WaterAccounting | null;
+  waterUnit?: string;
 }
 
 export function EventPanel({
@@ -18,6 +26,8 @@ export function EventPanel({
   isLoadingReflection,
   reflectionError,
   onRequestReflection,
+  accounting = null,
+  waterUnit = "fictional water units",
 }: EventPanelProps) {
   return (
     <section className="surface-card event-panel" aria-labelledby="event-title">
@@ -108,6 +118,11 @@ export function EventPanel({
           )}
         </article>
       )}
+
+      {accounting ? (
+        <WaterAccountingChart accounting={accounting} waterUnit={waterUnit} />
+      ) : null}
+      <WaterAccountingPanel accounting={accounting} waterUnit={waterUnit} />
     </section>
   );
 }

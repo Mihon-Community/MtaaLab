@@ -1,6 +1,7 @@
 import type { Sector, SessionStateResponse } from "../types/api";
 
 const cachePrefix = "mtaalab:confirmed-session:";
+const lastSessionKey = `${cachePrefix}last`;
 const sectors: Sector[] = ["households", "school", "clinic", "farms"];
 
 export function readConfirmedSession(
@@ -27,8 +28,20 @@ export function saveConfirmedSession(session: SessionStateResponse): void {
       `${cachePrefix}${session.session_id}`,
       JSON.stringify(session),
     );
+    // Navigating away from a simulation should not lose the active session.
+    window.localStorage.setItem(lastSessionKey, session.session_id);
   } catch (error) {
     console.warn("Could not save the confirmed simulation snapshot.", error);
+  }
+}
+
+/** The most recent confirmed session id, so navigation can carry it along. */
+export function readLastConfirmedSessionId(): string | null {
+  try {
+    return window.localStorage.getItem(lastSessionKey);
+  } catch (error) {
+    console.warn("Could not read the last confirmed session id.", error);
+    return null;
   }
 }
 

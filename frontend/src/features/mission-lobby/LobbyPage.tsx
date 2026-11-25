@@ -2,10 +2,26 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { Link } from "react-router-dom";
+import { ArrowRight } from "lucide-react";
 import { ApiError, getMissions } from "../../services/api";
 import { isDemoMode } from "../../services/demo";
 import { getSupabaseClient } from "../../services/supabase";
+import { formatGradeBand } from "../../lib/utils";
 import type { MissionListItem } from "../../types/api";
+import { EmptyState } from "@/components/EmptyState";
+import { ErrorState } from "@/components/ErrorState";
+import { LoadingState } from "@/components/LoadingState";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { MtoniHero } from "./MtoniHero";
+import { QuickOrientation } from "./QuickOrientation";
 
 export function LobbyPage() {
   const supabase = getSupabaseClient();
@@ -152,128 +168,127 @@ export function LobbyPage() {
 
   return (
     <section aria-labelledby="lobby-title">
-      <div className="page-heading">
-        <p className="eyebrow">Mission desk · Assigned learning games</p>
-        <h1 id="lobby-title">A living world, shaped by your choices.</h1>
-        <p className="page-intro">
-          Explore the missions assigned to your class. Each one asks you to
-          balance community needs, shared resources, and the long view.
-        </p>
-      </div>
+      <MtoniHero />
+      <QuickOrientation />
 
-      <div className="lobby-toolbar">
-        <h2>Assigned missions</h2>
-        {!loading && !error && (
-          <span className="assignment-count">
-            {missions.length} {missions.length === 1 ? "mission" : "missions"}
-          </span>
+      <section id="missions" aria-labelledby="missions-title">
+        <div className="lobby-toolbar">
+          <h2 id="missions-title">Choose a mission</h2>
+          {!loading && !error && (
+            <span className="assignment-count">
+              {missions.length} {missions.length === 1 ? "mission" : "missions"}
+            </span>
+          )}
+        </div>
+
+        {loading && (
+          <LoadingState
+            variant="cards"
+            message="Checking your class assignments…"
+            rows={3}
+          />
         )}
-      </div>
 
-      {supabase && session && (
-        <button
-          className="notice-action"
-          type="button"
-          onClick={() => void supabase.auth.signOut()}
-        >
-          Sign out
-        </button>
-      )}
+        {error && (
+          <ErrorState
+            title={isUnauthorized ? "Sign-in required" : "Missions unavailable"}
+            message={
+              isUnauthorized
+                ? "Your session is not signed in. Sign in with an assigned learner or teacher account, then try again."
+                : "We couldn't load your assigned missions. Check your connection and try again."
+            }
+            onRetry={() => setAttempt((current) => current + 1)}
+            retrying={loading}
+          />
+        )}
 
-      {loading && (
-        <div className="loading-card" role="status" aria-live="polite">
-          <p>Checking your class assignments…</p>
-        </div>
-      )}
+        {!loading && !error && missions.length === 0 && (
+          <EmptyState
+            title="No missions are assigned to your class yet."
+            description="When your teacher shares a mission, it will appear here."
+          />
+        )}
 
-      {error && (
-        <div className="notice-card notice-card-error" role="alert">
-          <p>
-            {isUnauthorized
-              ? "Your session is not signed in. Sign in with an assigned learner or teacher account, then try again."
-              : "We couldn't load your assigned missions. Check your connection and try again."}
-          </p>
-          <button
-            className="notice-action"
-            type="button"
-            onClick={() => setAttempt((current) => current + 1)}
-            disabled={loading}
-          >
-            Try again
-          </button>
-        </div>
-      )}
-
-      {!loading && !error && missions.length === 0 && (
-        <div className="notice-card notice-card-empty">
-          <p>No missions are assigned to your class yet.</p>
-          <p>When your teacher shares a mission, it will appear here.</p>
-        </div>
-      )}
-
-      {!loading && !error && missions.length > 0 && (
-        <div className="mission-grid" aria-label="Assigned missions">
-          {missions.map((mission) => (
-            <article className="mission-card" key={mission.id}>
-              <div className="mission-card-topline">
-                <span className="subject-tag">{mission.subject}</span>
-                <span className="assigned-tag">
-                  {mission.recommended ? "Suggested" : "Assigned"}
-                </span>
-              </div>
-              <h3>{mission.title}</h3>
-              <p className="mission-description">{mission.description}</p>
-              <div className="mission-card-meta">
-                <span>
-                  {mission.grade_band === "Teacher assigned" ? (
-                    "Teacher assigned"
-                  ) : (
-                    <>
-                      Grade band <strong>{mission.grade_band}</strong>
-                    </>
-                  )}
-                </span>
-                <span>Scenario v{mission.scenario_version}</span>
-              </div>
-              {mission.last_session_status === "active" &&
-                mission.last_session_id && (
-                  <p className="game-progress">
-                    Saved progress · turn {mission.current_turn ?? 0}
+        {!loading && !error && missions.length > 0 && (
+          <div className="mission-grid" aria-label="Assigned missions">
+            {missions.map((mission) => (
+              <Card key={mission.id} className="flex h-full flex-col gap-4">
+                <CardHeader>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="subject-tag">{mission.subject}</span>
+                    <span className="assigned-tag">
+                      {mission.recommended ? "Suggested" : "Assigned"}
+                    </span>
+                  </div>
+                  <CardTitle>{mission.title}</CardTitle>
+                  {mission.description ? (
+                    <CardDescription>{mission.description}</CardDescription>
+                  ) : null}
+                </CardHeader>
+                <CardContent className="mt-auto pb-0">
+                  <p className="text-xs text-muted-foreground">
+                    {formatGradeBand(mission.grade_band)} · Scenario v
+                    {mission.scenario_version}
                   </p>
-                )}
-              {mission.recommendation_reason && (
-                <p className="form-hint">{mission.recommendation_reason}</p>
-              )}
-              {mission.last_session_status === "active" &&
-              mission.last_session_id ? (
-                <Link
-                  className="briefing-link"
-                  to={`/simulation?sessionId=${encodeURIComponent(mission.last_session_id)}&missionId=${encodeURIComponent(mission.id)}`}
-                >
-                  Continue saved mission
-                </Link>
-              ) : (
-                <Link
-                  className="briefing-link"
-                  to={`/briefing?mission_id=${encodeURIComponent(mission.id)}`}
-                  aria-label={`Read briefing for ${mission.title}`}
-                >
-                  Read mission briefing
-                </Link>
-              )}
-              {mission.last_session_status === "completed" &&
-                mission.last_session_id && (
-                  <Link
-                    className="text-link"
-                    to={`/report?session_id=${encodeURIComponent(mission.last_session_id)}`}
+                  {mission.last_session_status === "active" &&
+                    mission.last_session_id && (
+                      <p className="mt-2 text-sm font-medium text-foreground">
+                        Saved progress · turn {mission.current_turn ?? 0}
+                      </p>
+                    )}
+                  {mission.recommendation_reason && (
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      {mission.recommendation_reason}
+                    </p>
+                  )}
+                </CardContent>
+                <CardFooter className="flex-col items-stretch">
+                  <Button
+                    asChild
+                    variant="secondary"
+                    size="sm"
+                    className="w-full"
                   >
-                    Review completed run
-                  </Link>
-                )}
-            </article>
-          ))}
-        </div>
-      )}
+                    <Link
+                      to={
+                        mission.last_session_status === "active" &&
+                        mission.last_session_id
+                          ? `/simulation?session_id=${encodeURIComponent(mission.last_session_id)}&mission_id=${encodeURIComponent(mission.id)}`
+                          : `/briefing?mission_id=${encodeURIComponent(mission.id)}`
+                      }
+                      aria-label={
+                        mission.last_session_status === "active" &&
+                        mission.last_session_id
+                          ? `Continue saved mission: ${mission.title}`
+                          : `View briefing for ${mission.title}`
+                      }
+                    >
+                      {mission.last_session_status === "active" &&
+                      mission.last_session_id
+                        ? "Continue saved mission"
+                        : "View briefing"}
+                      <ArrowRight
+                        aria-hidden="true"
+                        size={16}
+                        strokeWidth={2}
+                      />
+                    </Link>
+                  </Button>
+                  {mission.last_session_status === "completed" &&
+                    mission.last_session_id && (
+                      <Link
+                        className="text-link"
+                        to={`/report?session_id=${encodeURIComponent(mission.last_session_id)}`}
+                      >
+                        Review completed run
+                      </Link>
+                    )}
+                </CardFooter>
+              </Card>
+            ))}
+          </div>
+        )}
+      </section>
     </section>
   );
 }

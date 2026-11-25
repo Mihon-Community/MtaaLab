@@ -4,6 +4,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import {
   ApiError,
   createReplay,
+  getSimulationHistory,
   getSimulationReport,
   getSimulationState,
 } from "../../services/api";
@@ -15,8 +16,11 @@ import {
 import type {
   MissionReport,
   Sector,
+  HistoryEntry,
   SessionStateResponse,
 } from "../../types/api";
+import { RunComparisonChart } from "@/components/charts";
+import { PageHeader } from "@/components/layout/PageHeader";
 
 type RunState = Record<string, unknown>;
 const sectors: Sector[] = ["households", "school", "clinic", "farms"];
@@ -33,6 +37,8 @@ export function ReplayPage() {
     useState<SessionStateResponse<RunState> | null>(null);
   const [sourceReport, setSourceReport] = useState<MissionReport | null>(null);
   const [replayReport, setReplayReport] = useState<MissionReport | null>(null);
+  const [sourceHistory, setSourceHistory] = useState<HistoryEntry[]>([]);
+  const [replayHistory, setReplayHistory] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(Boolean(sourceId));
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +54,8 @@ export function ReplayPage() {
       setReplayState(null);
       setSourceReport(null);
       setReplayReport(null);
+      setSourceHistory([]);
+      setReplayHistory([]);
       setError(null);
       return () => {
         active = false;
@@ -60,28 +68,36 @@ export function ReplayPage() {
     setReplayState(null);
     setSourceReport(null);
     setReplayReport(null);
+    setSourceHistory([]);
+    setReplayHistory([]);
     void (async () => {
       try {
-        const [source, sourceRun] = await Promise.all([
+        const [source, sourceRun, sourceSaved] = await Promise.all([
           getSimulationState<RunState>(sourceId),
           getSimulationReport(sourceId),
+          getSimulationHistory(sourceId).catch(() => null),
         ]);
         if (active) {
           setSourceState(source);
           setSourceReport(sourceRun);
+          setSourceHistory(sourceSaved?.entries ?? []);
         }
         if (replayId) {
-          const [alternative, alternativeRun] = await Promise.all([
-            getSimulationState<RunState>(replayId),
-            getSimulationReport(replayId),
-          ]);
+          const [alternative, alternativeRun, alternativeSaved] =
+            await Promise.all([
+              getSimulationState<RunState>(replayId),
+              getSimulationReport(replayId),
+              getSimulationHistory(replayId).catch(() => null),
+            ]);
           if (active) {
             setReplayState(alternative);
             setReplayReport(alternativeRun);
+            setReplayHistory(alternativeSaved?.entries ?? []);
           }
         } else if (active) {
           setReplayState(null);
           setReplayReport(null);
+          setReplayHistory([]);
         }
       } catch (cause) {
         if (active) setError(describeError(cause));
@@ -135,17 +151,22 @@ export function ReplayPage() {
   const replayValues = stateRecord(replayState?.state);
   const sourceServiceLevels = stateRecord(sourceValues.service_levels);
   const replayServiceLevels = stateRecord(replayValues.service_levels);
+  const canCompareCharts =
+    scenarioId === "mtoni" &&
+    sourceReport !== null &&
+    replayReport !== null &&
+    isMtoniReport(sourceReport) &&
+    isMtoniReport(replayReport);
 
   return (
     <section className="replay-page" aria-labelledby="replay-title">
-      <p className="eyebrow">Simulation replay · Compare strategies</p>
-      <div className="page-heading">
-        <h1 id="replay-title">A second run, a different lens.</h1>
-        <p className="page-intro">
-          Replays start from the original mission’s saved initial state. They
-          create a new run and never overwrite the source.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Simulation replay · Compare strategies"
+        title="A second run, a different lens."
+        description="Replays start from the original mission’s saved initial state. They create a new run and never overwrite the source."
+        titleId="replay-title"
+        className="mb-6"
+      />
 
       {!sourceId && (
         <form
@@ -282,6 +303,16 @@ export function ReplayPage() {
             </p>
           </section>
 
+          {canCompareCharts && (
+            <RunComparisonChart
+              original={sourceReport}
+              alternative={replayReport}
+              originalHistory={sourceHistory}
+              alternativeHistory={replayHistory}
+              waterUnit="water units"
+            />
+          )}
+
           <div className="comparison-decisions">
             <DecisionSummary
               title="Original decisions"
@@ -299,7 +330,7 @@ export function ReplayPage() {
         <div className="report-footer-actions">
           <Link
             className="primary-action"
-            to={`/simulation?sessionId=${encodeURIComponent(replayId)}&missionId=${encodeURIComponent(missionId ?? "")}&compare_session_id=${encodeURIComponent(sourceId)}`}
+            to={`/simulation?session_id=${encodeURIComponent(replayId)}&mission_id=${encodeURIComponent(missionId ?? "")}&compare_session_id=${encodeURIComponent(sourceId)}`}
           >
             Continue the alternative run
           </Link>
@@ -375,6 +406,28 @@ function DecisionSummary({
 
 function formatNumber(value: number) {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+type MtoniOutcomes = Record<string, unknown> & {
+  reservoir_level: number;
+  budget_remaining: number;
+  wellbeing: number;
+  crop_health: number;
+  service_levels: Record<Sector, number>;
+};
+
+function isMtoniReport(
+  report: MissionReport,
+): report is MissionReport<MtoniOutcomes> {
+  const outcomes = stateRecord(report.outcomes);
+  const services = stateRecord(outcomes.service_levels);
+  return (
+    typeof outcomes.reservoir_level === "number" &&
+    typeof outcomes.budget_remaining === "number" &&
+    typeof outcomes.wellbeing === "number" &&
+    typeof outcomes.crop_health === "number" &&
+    sectors.every((sector) => typeof services[sector] === "number")
+  );
 }
 
 function formatWithUnit(value: number, unit: string) {

@@ -971,5 +971,6 @@ or error handling.
 - `docs/SIMULATION_RULES.md` — deterministic rules, bounds, and replay.
 - `docs/BACKEND_GUIDE.md` — backend/mobile setup and Africa's Talking testing.
 - `docs/INTEGRATION_STATUS.md` — what has been verified and what remains.
+- `docs/FRONTEND_UI_GUIDE.md` — visual system, responsive layouts, and chart design guidance.
 - `CONTRIBUTING.md` — branch model, PR rules, commit style.
 - `README.md` — run the whole stack with Docker Compose.

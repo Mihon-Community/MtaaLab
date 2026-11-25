@@ -19,11 +19,16 @@ import type {
   HistoryEntry,
   MissionDetail,
   SessionStateResponse,
+  WaterAccounting,
 } from "../../types/api";
+import { toast } from "sonner";
+import { PageHeader } from "@/components/layout/PageHeader";
+import { BudgetTrendChart, ReservoirTrendChart } from "@/components/charts";
 import { EventPanel } from "./EventPanel";
 import { InspectionPanel } from "./InspectionPanel";
 import { ResourceHUD } from "./ResourceHUD";
 import { DecisionPanel } from "./DecisionPanel";
+import { StakeholderPanel } from "./StakeholderPanel";
 import { TurnTimeline } from "./TurnTimeline";
 import { WORLD_LOCATIONS, type LocationId } from "./worldLocations";
 import { WorldCanvas } from "./WorldCanvas";
@@ -156,6 +161,9 @@ function MissionSimulationPage() {
   const [lastEvents, setLastEvents] = useState<NonNullable<
     HistoryEntry["events"]
   > | null>(null);
+  const [lastAccounting, setLastAccounting] = useState<WaterAccounting | null>(
+    null,
+  );
   const [stateAttempt, setStateAttempt] = useState(0);
   const [missionAttempt, setMissionAttempt] = useState(0);
   const [historyAttempt, setHistoryAttempt] = useState(0);
@@ -168,6 +176,7 @@ function MissionSimulationPage() {
   useEffect(() => {
     setHistory([]);
     setLastEvents(null);
+    setLastAccounting(null);
     setFeedbackStatus(null);
     setReflection(null);
   }, [sessionId]);
@@ -342,7 +351,9 @@ function MissionSimulationPage() {
       setSession(confirmed);
       saveConfirmedSession(confirmed);
       setLastEvents(result.events);
+      setLastAccounting(result.water_accounting ?? null);
       setFeedbackStatus(result.ai_feedback_status);
+      toast.success(`Turn ${result.turn} confirmed`);
       setReflection(null);
       pendingRequest.current = null;
       setStateError(null);
@@ -483,40 +494,42 @@ function MissionSimulationPage() {
 
   return (
     <section className="simulation-page" aria-labelledby="simulation-title">
-      <div className="simulation-heading-row">
-        <div className="page-heading">
-          <p className="eyebrow">Mtoni catchment · {activeMission.subject}</p>
-          <h1 id="simulation-title">{activeMission.title}</h1>
-          <p className="page-intro">{activeMission.description}</p>
-        </div>
-        <div className="simulation-page-actions">
-          {stateError && (
-            <span className="cached-state-label">
-              Showing last confirmed state
-            </span>
-          )}
-          <Link
-            className="text-link"
-            to={`/report?session_id=${encodeURIComponent(sessionId)}`}
-          >
-            Learning report
-          </Link>
-          <Link
-            className="text-link"
-            to={`/replay?source_session_id=${encodeURIComponent(sessionId)}`}
-          >
-            Replay this run
-          </Link>
-          {compareSessionId && (
+      <PageHeader
+        eyebrow={`Mtoni catchment · ${activeMission.subject}`}
+        title={activeMission.title}
+        description={activeMission.description}
+        titleId="simulation-title"
+        className="mb-6"
+        actions={
+          <>
+            {stateError && (
+              <span className="cached-state-label">
+                Showing last confirmed state
+              </span>
+            )}
             <Link
               className="text-link"
-              to={`/replay?source_session_id=${encodeURIComponent(compareSessionId)}&replay_session_id=${encodeURIComponent(sessionId)}&mission_id=${encodeURIComponent(activeMission.id)}`}
+              to={`/report?session_id=${encodeURIComponent(sessionId)}`}
             >
-              Compare with original
+              Learning report
             </Link>
-          )}
-        </div>
-      </div>
+            <Link
+              className="text-link"
+              to={`/replay?source_session_id=${encodeURIComponent(sessionId)}`}
+            >
+              Replay this run
+            </Link>
+            {compareSessionId && (
+              <Link
+                className="text-link"
+                to={`/replay?source_session_id=${encodeURIComponent(compareSessionId)}&replay_session_id=${encodeURIComponent(sessionId)}&mission_id=${encodeURIComponent(activeMission.id)}`}
+              >
+                Compare with original
+              </Link>
+            )}
+          </>
+        }
+      />
 
       {(stateError || missionError) && (
         <div className="notice-card notice-card-error" role="alert">
@@ -563,6 +576,16 @@ function MissionSimulationPage() {
         </div>
       </section>
 
+      {history.length > 0 ? (
+        <section
+          className="grid gap-6 lg:grid-cols-2"
+          aria-label="Confirmed trends across turns"
+        >
+          <ReservoirTrendChart entries={history} unit={waterUnit} />
+          <BudgetTrendChart entries={history} unit={budgetUnit} />
+        </section>
+      ) : null}
+
       <div className="world-inspection-layout">
         <section
           className="surface-card world-section"
@@ -577,7 +600,7 @@ function MissionSimulationPage() {
               <span aria-hidden="true" /> Connected water system
             </span>
           </div>
-          <WorldCanvas onSelect={setSelectedLocation} />
+          <WorldCanvas onSelect={setSelectedLocation} state={state} />
           <div
             className="world-location-list"
             role="group"
@@ -616,6 +639,13 @@ function MissionSimulationPage() {
         onSubmit={(decision) => void handleSubmitDecision(decision)}
       />
 
+      <StakeholderPanel
+        state={state}
+        events={events}
+        waterUnit={waterUnit}
+        aiFeedbackStatus={aiStatus}
+      />
+
       <div className="simulation-detail-grid">
         <EventPanel
           events={events}
@@ -625,6 +655,8 @@ function MissionSimulationPage() {
           isLoadingReflection={reflectionLoading}
           reflectionError={reflectionError}
           onRequestReflection={() => void handleRequestReflection()}
+          accounting={lastAccounting}
+          waterUnit={waterUnit}
         />
         <TurnTimeline
           entries={history}

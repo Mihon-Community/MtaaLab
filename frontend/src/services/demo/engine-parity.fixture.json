@@ -1,0 +1,417 @@
+{
+  "turns": [
+    {
+      "turn": 1,
+      "accepted": true,
+      "action": {
+        "action_type": "change_allocation",
+        "parameters": {
+          "policy_id": "household_focus"
+        },
+        "expected_turn": 0
+      },
+      "state": {
+        "current_turn": 1,
+        "reservoir_level": 12.0,
+        "reservoir_capacity": 100.0,
+        "demand_by_sector": {
+          "households": 20.0,
+          "school": 8.0,
+          "clinic": 6.0,
+          "farms": 15.0
+        },
+        "leakage": 4.0,
+        "budget_remaining": 100.0,
+        "service_levels": {
+          "households": 1.0,
+          "school": 1.0,
+          "clinic": 1.0,
+          "farms": 1.0
+        },
+        "unmet_demand_by_sector": {
+          "households": 0.0,
+          "school": 0.0,
+          "clinic": 0.0,
+          "farms": 0.0
+        },
+        "crop_health": 73.0,
+        "wellbeing": 74.0,
+        "allocation_policy": "household_focus",
+        "used_actions": [],
+        "pending_effects": []
+      },
+      "events": [
+        {
+          "event_type": "weekly_water_report",
+          "turn_number": 1,
+          "payload": {
+            "message": "The community reviews the first week's water use."
+          },
+          "engine_version": "mtoni-rules-v1"
+        }
+      ],
+      "water_accounting": {
+        "opening_reservoir": 60.0,
+        "inflow": 5.0,
+        "closing_reservoir": 12.0,
+        "withdrawals_by_sector": {
+          "households": 20.0,
+          "school": 8.0,
+          "clinic": 6.0,
+          "farms": 15.0
+        },
+        "leakage": 4.0,
+        "overflow": 0.0
+      },
+      "idempotent_replay": false
+    },
+    {
+      "turn": 2,
+      "accepted": true,
+      "action": {
+        "action_type": "repair_main_pipe",
+        "parameters": {},
+        "expected_turn": 1
+      },
+      "state": {
+        "current_turn": 2,
+        "reservoir_level": 0.0,
+        "reservoir_capacity": 100.0,
+        "demand_by_sector": {
+          "households": 20.0,
+          "school": 8.0,
+          "clinic": 6.0,
+          "farms": 15.0
+        },
+        "leakage": 2.0,
+        "budget_remaining": 75.0,
+        "service_levels": {
+          "households": 0.1,
+          "school": 0.725,
+          "clinic": 0.8666666666666666,
+          "farms": 0.06666666666666667
+        },
+        "unmet_demand_by_sector": {
+          "households": 18.0,
+          "school": 2.2,
+          "clinic": 0.8000000000000007,
+          "farms": 14.0
+        },
+        "crop_health": 67.0,
+        "wellbeing": 72.0,
+        "allocation_policy": "household_focus",
+        "used_actions": ["repair_main_pipe"],
+        "pending_effects": []
+      },
+      "events": [
+        {
+          "event_type": "school_meeting",
+          "turn_number": 2,
+          "payload": {
+            "message": "The school asks how the plan protects learners."
+          },
+          "engine_version": "mtoni-rules-v1"
+        }
+      ],
+      "water_accounting": {
+        "opening_reservoir": 12.0,
+        "inflow": 4.0,
+        "closing_reservoir": 0.0,
+        "withdrawals_by_sector": {
+          "households": 2.0,
+          "school": 5.8,
+          "clinic": 5.199999999999999,
+          "farms": 1.0
+        },
+        "leakage": 2.0,
+        "overflow": 0.0
+      },
+      "idempotent_replay": false
+    },
+    {
+      "turn": 3,
+      "accepted": true,
+      "action": {
+        "action_type": "conservation_campaign",
+        "parameters": {
+          "household_reduction_ratio": 0.15
+        },
+        "expected_turn": 2
+      },
+      "state": {
+        "current_turn": 3,
+        "reservoir_level": 0.0,
+        "reservoir_capacity": 100.0,
+        "demand_by_sector": {
+          "households": 20.0,
+          "school": 8.0,
+          "clinic": 6.0,
+          "farms": 15.0
+        },
+        "leakage": 2.0,
+        "budget_remaining": 60.0,
+        "service_levels": {
+          "households": 0.0,
+          "school": 0.20000000000000004,
+          "clinic": 0.23333333333333328,
+          "farms": 0.0
+        },
+        "unmet_demand_by_sector": {
+          "households": 20.0,
+          "school": 6.3999999999999995,
+          "clinic": 4.6000000000000005,
+          "farms": 15.0
+        },
+        "crop_health": 60.0,
+        "wellbeing": 64.0,
+        "allocation_policy": "household_focus",
+        "used_actions": ["repair_main_pipe", "conservation_campaign"],
+        "pending_effects": [
+          {
+            "action_type": "conservation_campaign",
+            "apply_turn": 4,
+            "effect_type": "reduce_demand",
+            "sector": "households",
+            "reduction_ratio": 0.15
+          }
+        ]
+      },
+      "events": [
+        {
+          "event_type": "market_update",
+          "turn_number": 3,
+          "payload": {
+            "message": "Farmers share an update from the local market."
+          },
+          "engine_version": "mtoni-rules-v1"
+        }
+      ],
+      "water_accounting": {
+        "opening_reservoir": 0.0,
+        "inflow": 5.0,
+        "closing_reservoir": 0.0,
+        "withdrawals_by_sector": {
+          "households": 0.0,
+          "school": 1.6000000000000003,
+          "clinic": 1.3999999999999997,
+          "farms": 0.0
+        },
+        "leakage": 2.0,
+        "overflow": 0.0
+      },
+      "idempotent_replay": false
+    },
+    {
+      "turn": 4,
+      "accepted": true,
+      "action": {
+        "action_type": "change_allocation",
+        "parameters": {
+          "policy_id": "farm_focus"
+        },
+        "expected_turn": 3
+      },
+      "state": {
+        "current_turn": 4,
+        "reservoir_level": 0.0,
+        "reservoir_capacity": 100.0,
+        "demand_by_sector": {
+          "households": 17.0,
+          "school": 8.0,
+          "clinic": 6.0,
+          "farms": 15.0
+        },
+        "leakage": 2.0,
+        "budget_remaining": 60.0,
+        "service_levels": {
+          "households": 0.0,
+          "school": 0.06666666666666668,
+          "clinic": 0.07777777777777777,
+          "farms": 0.0
+        },
+        "unmet_demand_by_sector": {
+          "households": 17.0,
+          "school": 7.466666666666667,
+          "clinic": 5.533333333333333,
+          "farms": 15.0
+        },
+        "crop_health": 53.0,
+        "wellbeing": 55.0,
+        "allocation_policy": "farm_focus",
+        "used_actions": ["repair_main_pipe", "conservation_campaign"],
+        "pending_effects": []
+      },
+      "events": [
+        {
+          "event_type": "clinic_update",
+          "turn_number": 4,
+          "payload": {
+            "message": "The clinic reports on its essential water needs."
+          },
+          "engine_version": "mtoni-rules-v1"
+        }
+      ],
+      "water_accounting": {
+        "opening_reservoir": 0.0,
+        "inflow": 3.0,
+        "closing_reservoir": 0.0,
+        "withdrawals_by_sector": {
+          "households": 0.0,
+          "school": 0.5333333333333334,
+          "clinic": 0.46666666666666656,
+          "farms": 0.0
+        },
+        "leakage": 2.0,
+        "overflow": 0.0
+      },
+      "idempotent_replay": false
+    },
+    {
+      "turn": 5,
+      "accepted": true,
+      "action": {
+        "action_type": "efficient_irrigation",
+        "parameters": {
+          "farm_reduction_ratio": 0.2
+        },
+        "expected_turn": 4
+      },
+      "state": {
+        "current_turn": 5,
+        "reservoir_level": 0.0,
+        "reservoir_capacity": 100.0,
+        "demand_by_sector": {
+          "households": 17.0,
+          "school": 8.0,
+          "clinic": 6.0,
+          "farms": 15.0
+        },
+        "leakage": 2.0,
+        "budget_remaining": 40.0,
+        "service_levels": {
+          "households": 0.0,
+          "school": 0.13333333333333336,
+          "clinic": 0.15555555555555553,
+          "farms": 0.0
+        },
+        "unmet_demand_by_sector": {
+          "households": 17.0,
+          "school": 6.933333333333334,
+          "clinic": 5.066666666666666,
+          "farms": 15.0
+        },
+        "crop_health": 46.0,
+        "wellbeing": 46.0,
+        "allocation_policy": "farm_focus",
+        "used_actions": [
+          "repair_main_pipe",
+          "conservation_campaign",
+          "efficient_irrigation"
+        ],
+        "pending_effects": [
+          {
+            "action_type": "efficient_irrigation",
+            "apply_turn": 6,
+            "effect_type": "reduce_demand",
+            "sector": "farms",
+            "reduction_ratio": 0.2
+          }
+        ]
+      },
+      "events": [
+        {
+          "event_type": "community_forum",
+          "turn_number": 5,
+          "payload": {
+            "message": "Community members compare the effects of the plan."
+          },
+          "engine_version": "mtoni-rules-v1"
+        }
+      ],
+      "water_accounting": {
+        "opening_reservoir": 0.0,
+        "inflow": 4.0,
+        "closing_reservoir": 0.0,
+        "withdrawals_by_sector": {
+          "households": 0.0,
+          "school": 1.0666666666666669,
+          "clinic": 0.9333333333333331,
+          "farms": 0.0
+        },
+        "leakage": 2.0,
+        "overflow": 0.0
+      },
+      "idempotent_replay": false
+    },
+    {
+      "turn": 6,
+      "accepted": true,
+      "action": {
+        "action_type": "install_storage",
+        "parameters": {
+          "capacity_increase": 20
+        },
+        "expected_turn": 5
+      },
+      "state": {
+        "current_turn": 6,
+        "reservoir_level": 0.0,
+        "reservoir_capacity": 120.0,
+        "demand_by_sector": {
+          "households": 17.0,
+          "school": 8.0,
+          "clinic": 6.0,
+          "farms": 12.0
+        },
+        "leakage": 2.0,
+        "budget_remaining": 10.0,
+        "service_levels": {
+          "households": 0.0,
+          "school": 0.20000000000000004,
+          "clinic": 0.23333333333333328,
+          "farms": 0.0
+        },
+        "unmet_demand_by_sector": {
+          "households": 17.0,
+          "school": 6.3999999999999995,
+          "clinic": 4.6000000000000005,
+          "farms": 12.0
+        },
+        "crop_health": 39.0,
+        "wellbeing": 38.0,
+        "allocation_policy": "farm_focus",
+        "used_actions": [
+          "repair_main_pipe",
+          "conservation_campaign",
+          "efficient_irrigation",
+          "install_storage"
+        ],
+        "pending_effects": []
+      },
+      "events": [
+        {
+          "event_type": "mission_review",
+          "turn_number": 6,
+          "payload": {
+            "message": "The community reviews the final mission results."
+          },
+          "engine_version": "mtoni-rules-v1"
+        }
+      ],
+      "water_accounting": {
+        "opening_reservoir": 0.0,
+        "inflow": 5.0,
+        "closing_reservoir": 0.0,
+        "withdrawals_by_sector": {
+          "households": 0.0,
+          "school": 1.6000000000000003,
+          "clinic": 1.3999999999999997,
+          "farms": 0.0
+        },
+        "leakage": 2.0,
+        "overflow": 0.0
+      },
+      "idempotent_replay": false
+    }
+  ]
+}

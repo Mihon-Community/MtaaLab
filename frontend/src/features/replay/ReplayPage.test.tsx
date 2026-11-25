@@ -104,6 +104,33 @@ describe("ReplayPage", () => {
             mission_id: "mission-1",
           });
         }
+        if (url.includes("/api/simulations/source-1/history")) {
+          return response({
+            session_id: "source-1",
+            entries: [
+              {
+                turn: 0,
+                action: null,
+                events: [],
+                state: state("source-1", 70).state,
+                state_hash: null,
+                ai_feedback_status: null,
+              },
+            ],
+            limit: 100,
+            offset: 0,
+            total: 1,
+          });
+        }
+        if (url.includes("/api/simulations/replay-1/history")) {
+          return response({
+            session_id: "replay-1",
+            entries: [],
+            limit: 100,
+            offset: 0,
+            total: 0,
+          });
+        }
         if (url.endsWith("/api/simulations/replay-1/state")) {
           return response(state("replay-1", 82));
         }
@@ -133,7 +160,7 @@ describe("ReplayPage", () => {
       screen.getByRole("link", { name: "Continue the alternative run" }),
     ).toHaveAttribute(
       "href",
-      "/simulation?sessionId=replay-1&missionId=mission-1&compare_session_id=source-1",
+      "/simulation?session_id=replay-1&mission_id=mission-1&compare_session_id=source-1",
     );
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/api/simulations/source-1/replay"),
