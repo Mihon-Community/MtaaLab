@@ -103,7 +103,7 @@ describe("mission start flow", () => {
           });
         }
 
-        if (url.endsWith("/api/simulations/session-1/history")) {
+        if (url.includes("/api/simulations/session-1/history")) {
           return response({
             session_id: "session-1",
             entries: [],

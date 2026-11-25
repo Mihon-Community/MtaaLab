@@ -1,4 +1,5 @@
 import { Link, NavLink, Route, Routes } from "react-router-dom";
+import { ApiStatusBanner } from "../components/ApiStatusBanner";
 import { ContrastToggle } from "../components/ContrastToggle";
 import { DemoModeBanner } from "../components/DemoModeBanner";
 import { routePages } from "./routes/pages";
@@ -42,6 +43,7 @@ export default function App() {
         </div>
       </header>
       <DemoModeBanner />
+      <ApiStatusBanner />
       <div id="main-content" className="page-content" tabIndex={-1}>
         <Routes>
           {routePages.map(({ path, component: Page }) => {

@@ -18,6 +18,7 @@ import type {
   MissionListItem,
   MissionReport,
   ReasoningAssessment,
+  ReflectionResponse,
   Sector,
   SessionCreatedResponse,
   SessionStateResponse,
@@ -53,6 +54,7 @@ interface DemoSession {
   accounting_by_turn: Record<number, WaterAccounting>;
   feedback: Record<number, StakeholderDialogue>;
   assessment: Record<string, unknown> | null;
+  reflections?: Record<number, ReflectionResponse>;
 }
 
 interface DemoStore {
@@ -221,6 +223,7 @@ function buildSession(
     accounting_by_turn: {},
     feedback: {},
     assessment: null,
+    reflections: {},
   };
 }
 
@@ -230,14 +233,12 @@ function sessionCreatedResponse(session: DemoSession): SessionCreatedResponse {
     mission_id: session.mission_id,
     turn: session.turn,
     status: session.status,
+    scenario_id: MTONI_SCENARIO.scenario_id,
     state: clone(session.snapshots[session.snapshots.length - 1]),
   };
 }
 
-function requireSession(
-  store: DemoStore,
-  sessionId: string,
-): DemoSession {
+function requireSession(store: DemoStore, sessionId: string): DemoSession {
   const session = store.sessions[sessionId];
   if (!session) throw new DemoHttpError(404, "Resource not found");
   return session;
@@ -333,7 +334,14 @@ function reportFor(session: DemoSession): MissionReport {
     events: session.decisions.flatMap((_decision, index) =>
       clone(session.events_by_turn[index + 1] ?? []),
     ),
-    assessment: session.assessment ? clone(session.assessment) : null,
+    assessment: session.assessment
+      ? {
+          feedback: clone(session.assessment),
+          source: "fallback",
+          ai_feedback_status: "available",
+          teacher_review_status: "not_requested",
+        }
+      : null,
   };
 }
 
@@ -344,10 +352,9 @@ function debriefFor(
 ): DebriefResponse {
   const entries = historyEntries(session);
   const finalState = session.snapshots[session.snapshots.length - 1];
-  const unmet = (Object.entries(finalState.unmet_demand_by_sector) as [
-    Sector,
-    number,
-  ][]).filter(([, amount]) => amount > 0);
+  const unmet = (
+    Object.entries(finalState.unmet_demand_by_sector) as [Sector, number][]
+  ).filter(([, amount]) => amount > 0);
 
   const tradeOffs = unmet.map(
     ([sector, amount]) =>
@@ -398,9 +405,10 @@ function debriefFor(
       referenced_facts: ["recorded_decisions", "final_state"],
     };
     debrief.reasoning_assessment = assessment;
-    session.assessment = clone(
-      assessment,
-    ) as unknown as Record<string, unknown>;
+    session.assessment = clone(assessment) as unknown as Record<
+      string,
+      unknown
+    >;
     saveStore(store);
   }
 
@@ -413,7 +421,9 @@ function debriefFor(
 }
 
 function label(value: string): string {
-  return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function parseBody(init: RequestInit): Record<string, unknown> {
@@ -467,8 +477,20 @@ export async function handleDemoRequest(
       return json(201, session);
     }
 
+    const reflectionMatch = pathname.match(
+      /^\/api\/simulations\/([^/]+)\/reflections\/(\d+)$/,
+    );
+    if (method === "GET" && reflectionMatch) {
+      const sessionId = decodeURIComponent(reflectionMatch[1]);
+      const turnNumber = Number(reflectionMatch[2]);
+      const session = requireSession(store, sessionId);
+      return json(200, {
+        reflection: session.reflections?.[turnNumber] ?? null,
+      });
+    }
+
     const sessionMatch = pathname.match(
-      /^\/api\/simulations\/([^/]+)\/(state|history|decisions|replay|debrief|report)$/,
+      /^\/api\/simulations\/([^/]+)\/(state|history|decisions|replay|debrief|report|reflections)$/,
     );
     if (sessionMatch) {
       const sessionId = decodeURIComponent(sessionMatch[1]);
@@ -480,6 +502,7 @@ export async function handleDemoRequest(
           session_id: session.session_id,
           turn: session.turn,
           status: session.status,
+          scenario_id: MTONI_SCENARIO.scenario_id,
           state: clone(session.snapshots[session.snapshots.length - 1]),
         };
         return json(200, response);
@@ -532,6 +555,46 @@ export async function handleDemoRequest(
         return json(200, debriefFor(store, session, explanation));
       }
 
+      if (method === "POST" && action === "reflections") {
+        const body = parseBody(init);
+        const turnNumber = Number(body.turn_number);
+        const answerCode = String(body.answer_code ?? "");
+        if (turnNumber !== session.turn) {
+          throw new DemoHttpError(
+            409,
+            "The simulation changed; fetch the latest confirmed state and retry.",
+          );
+        }
+        if (!["1", "2", "3"].includes(answerCode)) {
+          throw new DemoHttpError(400, "Choose one of the reflection answers.");
+        }
+        const existing = session.reflections?.[turnNumber];
+        if (existing && existing.answer_code !== answerCode) {
+          throw new DemoHttpError(
+            409,
+            "A different reflection answer was already recorded for this turn.",
+          );
+        }
+        const reflection: ReflectionResponse = existing ?? {
+          session_id: session.session_id,
+          turn_number: turnNumber,
+          answer_code: answerCode as ReflectionResponse["answer_code"],
+          misconception_tag:
+            answerCode === "3" ? "hint-requested" : "reasoning-recorded",
+          accepted: true,
+          idempotent_replay: false,
+        };
+        session.reflections = {
+          ...(session.reflections ?? {}),
+          [turnNumber]: reflection,
+        };
+        saveStore(store);
+        return json(200, {
+          ...reflection,
+          idempotent_replay: Boolean(existing),
+        });
+      }
+
       if (method === "POST" && action === "decisions") {
         const key = headerValue(init, "Idempotency-Key");
         if (!key) throw new DemoHttpError(400, "Idempotency-Key is required");
@@ -579,7 +642,10 @@ export async function handleDemoRequest(
           );
         }
 
-        const result = calculateNextState(session.snapshots[session.turn], decision);
+        const result = calculateNextState(
+          session.snapshots[session.turn],
+          decision,
+        );
         session.decisions.push({
           turn: result.turn,
           action_type: decision.action_type,
@@ -615,7 +681,11 @@ export async function handleDemoRequest(
     throw new DemoHttpError(404, "Resource not found");
   } catch (error) {
     if (error instanceof DemoHttpError) {
-      return { ok: false, status: error.status, body: { detail: error.detail } };
+      return {
+        ok: false,
+        status: error.status,
+        body: { detail: error.detail },
+      };
     }
     if (error instanceof EngineValidationError) {
       return {

@@ -101,12 +101,20 @@ function systemPrefersDark(): boolean {
 export function applyPreferences(preferences: UiPreferences): void {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
-  const resolved = preferences.mode === "system" ? (systemPrefersDark() ? "dark" : "light") : preferences.mode;
+  const resolved =
+    preferences.mode === "system"
+      ? systemPrefersDark()
+        ? "dark"
+        : "light"
+      : preferences.mode;
   root.dataset.theme = resolved;
   if (resolved === "dark") root.classList.add("dark");
   else root.classList.remove("dark");
   root.dataset.contrast = preferences.contrast;
-  root.style.setProperty("--text-scale", String(clampTextScale(preferences.textScale)));
+  root.style.setProperty(
+    "--text-scale",
+    String(clampTextScale(preferences.textScale)),
+  );
   root.dataset.motion = preferences.motion;
   root.style.colorScheme = resolved;
 }
@@ -138,7 +146,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     if (!window.matchMedia) return;
     const colourQuery = window.matchMedia("(prefers-color-scheme: dark)");
     const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const handleColour = (event: MediaQueryListEvent) => setSystemDark(event.matches);
+    const handleColour = (event: MediaQueryListEvent) =>
+      setSystemDark(event.matches);
     const handleMotion = (event: MediaQueryListEvent) =>
       setSystemReduceMotion(event.matches);
     colourQuery.addEventListener("change", handleColour);
@@ -172,13 +181,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         (preferences.motion === "system" && systemReduceMotion),
       setMode: (mode) => update({ mode }),
       setContrast: (contrast) => update({ contrast }),
-      setTextScale: (textScale) => update({ textScale: clampTextScale(textScale) }),
+      setTextScale: (textScale) =>
+        update({ textScale: clampTextScale(textScale) }),
       setMotion: (motion) => update({ motion }),
     }),
     [preferences, systemDark, systemReduceMotion, update],
   );
 
-  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+  return (
+    <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
+  );
 }
 
 export function useTheme(): ThemeContextValue {

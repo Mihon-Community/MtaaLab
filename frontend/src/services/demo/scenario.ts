@@ -208,14 +208,14 @@ export const MTONI_SCENARIO: Scenario = {
     },
     {
       actor_id: "farmer",
-      persona: "A fictional farmer who explains irrigation and crop trade-offs.",
+      persona:
+        "A fictional farmer who explains irrigation and crop trade-offs.",
       rules:
         "Use respectful, age-appropriate English. Do not claim facts absent from the supplied state.",
     },
     {
       actor_id: "head_teacher",
-      persona:
-        "A fictional head teacher who explains school water needs.",
+      persona: "A fictional head teacher who explains school water needs.",
       rules:
         "Use supportive, age-appropriate English. Ask evidence-based questions and never grade a learner.",
     },

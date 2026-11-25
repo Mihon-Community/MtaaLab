@@ -7,10 +7,17 @@ import {
   getSimulationDebrief,
   getSimulationReport,
 } from "../../services/api";
+import {
+  metricDisplayValue,
+  metricsForScenario,
+  numericValue,
+  stateRecord,
+} from "../../lib/scenarioMetrics";
 import type {
   DebriefResponse,
   MissionDetail,
   MissionReport,
+  ReasoningAssessment,
 } from "../../types/api";
 
 export function ReportPage() {
@@ -128,241 +135,296 @@ export function ReportPage() {
       )}
 
       {report && mission && (
-        <>
-          <div className="report-overview">
-            <div className="report-overview-card">
-              <span className="metric-label">Mission status</span>
-              <strong>{formatLabel(report.status)}</strong>
-            </div>
-            <div className="report-overview-card">
-              <span className="metric-label">Turns confirmed</span>
-              <strong>
-                {report.current_turn} / {mission.number_of_turns}
-              </strong>
-            </div>
-            <div className="report-overview-card">
-              <span className="metric-label">Decisions recorded</span>
-              <strong>{report.decisions.length}</strong>
-            </div>
+        <ReportContent
+          report={report}
+          mission={mission}
+          sessionId={sessionId}
+          explanation={explanation}
+          setExplanation={setExplanation}
+          generating={generating}
+          debrief={debrief}
+          debriefError={debriefError}
+          onGenerateDebrief={handleGenerateDebrief}
+        />
+      )}
+    </section>
+  );
+}
+
+function ReportContent({
+  report,
+  mission,
+  sessionId,
+  explanation,
+  setExplanation,
+  generating,
+  debrief,
+  debriefError,
+  onGenerateDebrief,
+}: {
+  report: MissionReport;
+  mission: MissionDetail;
+  sessionId: string;
+  explanation: string;
+  setExplanation: (value: string) => void;
+  generating: boolean;
+  debrief: DebriefResponse | null;
+  debriefError: string | null;
+  onGenerateDebrief: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+}) {
+  const outcomes = stateRecord(report.outcomes);
+  const metrics = metricsForScenario(mission.scenario_id, mission.units);
+  const serviceLevels = stateRecord(outcomes.service_levels);
+  const rawAssessment: unknown = report.assessment;
+  const savedAssessment = isReasoningAssessment(rawAssessment)
+    ? rawAssessment
+    : isReasoningAssessment(report.assessment?.feedback)
+      ? report.assessment.feedback
+      : null;
+  const savedAssessmentText = readText(
+    stateRecord(
+      isReasoningAssessment(rawAssessment)
+        ? rawAssessment
+        : report.assessment?.feedback,
+    ),
+    "overall_feedback",
+  );
+
+  return (
+    <>
+      <div className="report-overview">
+        <div className="report-overview-card">
+          <span className="metric-label">Mission status</span>
+          <strong>{formatLabel(report.status)}</strong>
+        </div>
+        <div className="report-overview-card">
+          <span className="metric-label">Turns confirmed</span>
+          <strong>
+            {report.current_turn} / {mission.number_of_turns}
+          </strong>
+        </div>
+        <div className="report-overview-card">
+          <span className="metric-label">Decisions recorded</span>
+          <strong>{report.decisions.length}</strong>
+        </div>
+      </div>
+
+      <article className="surface-card report-objective">
+        <p className="eyebrow">Learning objective</p>
+        <h2>{mission.learning_objectives[0]}</h2>
+        <ul className="objective-list compact-objectives">
+          {mission.learning_objectives.slice(1).map((objective) => (
+            <li key={objective}>{objective}</li>
+          ))}
+        </ul>
+      </article>
+
+      <section className="surface-card" aria-labelledby="outcomes-title">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Engine-confirmed outcomes</p>
+            <h2 id="outcomes-title">What changed</h2>
           </div>
-
-          <article className="surface-card report-objective">
-            <p className="eyebrow">Learning objective</p>
-            <h2>{mission.learning_objectives[0]}</h2>
-            <ul className="objective-list compact-objectives">
-              {mission.learning_objectives.slice(1).map((objective) => (
-                <li key={objective}>{objective}</li>
-              ))}
-            </ul>
-          </article>
-
-          <section className="surface-card" aria-labelledby="outcomes-title">
-            <div className="section-heading">
-              <div>
-                <p className="eyebrow">Engine-confirmed outcomes</p>
-                <h2 id="outcomes-title">What changed</h2>
-              </div>
-            </div>
-            <div className="report-outcome-grid">
-              <Outcome
-                label="Reservoir"
-                value={`${report.outcomes.reservoir_level} / ${report.outcomes.reservoir_capacity} ${mission.units.water}`}
-              />
-              <Outcome
-                label="Budget remaining"
-                value={`${report.outcomes.budget_remaining} ${mission.units.budget}`}
-              />
-              <Outcome
-                label="Wellbeing index"
-                value={`${Math.round(report.outcomes.wellbeing)}%`}
-              />
-              <Outcome
-                label="Crop health"
-                value={`${Math.round(report.outcomes.crop_health)}%`}
-              />
-            </div>
+        </div>
+        <div className="report-outcome-grid">
+          {metrics.map((metric) => (
+            <Outcome
+              key={metric.key}
+              label={metric.label}
+              value={metricDisplayValue(metric, outcomes)}
+            />
+          ))}
+        </div>
+        {Object.keys(serviceLevels).length > 0 && (
+          <>
             <h3 className="report-subheading">Community service levels</h3>
             <ul className="sector-list">
-              {Object.entries(report.outcomes.service_levels).map(
-                ([sector, serviceLevel]) => (
+              {Object.entries(serviceLevels).map(([sector, serviceLevel]) => {
+                const value = numericValue(
+                  { service_level: serviceLevel },
+                  "service_level",
+                );
+                return (
                   <li key={sector}>
                     <span>{formatLabel(sector)}</span>
-                    <span>{Math.round(serviceLevel * 100)}%</span>
+                    <span>{Math.round(value * 100)}%</span>
                     <meter
                       min={0}
                       max={1}
-                      value={serviceLevel}
+                      value={value}
                       aria-label={`${formatLabel(sector)} service level`}
                     />
                   </li>
-                ),
-              )}
+                );
+              })}
             </ul>
-          </section>
+          </>
+        )}
+      </section>
 
-          <div className="report-columns">
-            <section className="surface-card" aria-labelledby="decisions-title">
-              <p className="eyebrow">Persisted history</p>
-              <h2 id="decisions-title">Decisions made</h2>
-              {report.decisions.length > 0 ? (
-                <ol className="report-decision-list">
-                  {report.decisions.map((decision, index) => {
-                    const label =
-                      mission.action_catalogue.find(
-                        (action) => action.action_type === decision.action_type,
-                      )?.label ?? formatLabel(decision.action_type);
-                    return (
-                      <li key={`${decision.expected_turn}-${index}`}>
-                        <span>Turn {decision.expected_turn + 1}</span>
-                        <strong>{label}</strong>
-                      </li>
-                    );
-                  })}
-                </ol>
-              ) : (
-                <p className="briefing-description">
-                  No interventions were recorded for this run.
-                </p>
-              )}
-            </section>
-
-            <section className="surface-card" aria-labelledby="events-title">
-              <p className="eyebrow">Scenario record</p>
-              <h2 id="events-title">Events</h2>
-              {report.events.length > 0 ? (
-                <ul className="report-event-list">
-                  {report.events.map((event, index) => (
-                    <li
-                      key={`${event.turn_number}-${event.event_type}-${index}`}
-                    >
-                      <strong>
-                        Turn {event.turn_number} ·{" "}
-                        {formatLabel(event.event_type)}
-                      </strong>
-                      <span>
-                        {typeof event.payload.message === "string"
-                          ? event.payload.message
-                          : "Recorded event"}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="briefing-description">
-                  No scripted events were recorded for this run.
-                </p>
-              )}
-            </section>
-          </div>
-
-          {report.assessment && (
-            <section
-              className="surface-card"
-              aria-labelledby="saved-assessment"
-            >
-              <p className="eyebrow">Previously saved feedback</p>
-              <h2 id="saved-assessment">Reasoning evidence</h2>
-              <p>
-                {readText(report.assessment, "overall_feedback") ??
-                  "A prior reasoning assessment is attached to this report."}
-              </p>
-            </section>
-          )}
-
-          <section
-            className="surface-card debrief-section"
-            aria-labelledby="debrief-title"
-          >
-            <p className="eyebrow">Reflect on your choices</p>
-            <h2 id="debrief-title">Learning debrief</h2>
+      <div className="report-columns">
+        <section className="surface-card" aria-labelledby="decisions-title">
+          <p className="eyebrow">Persisted history</p>
+          <h2 id="decisions-title">Decisions made</h2>
+          {report.decisions.length > 0 ? (
+            <ol className="report-decision-list">
+              {report.decisions.map((decision, index) => {
+                const label =
+                  mission.action_catalogue.find(
+                    (action) => action.action_type === decision.action_type,
+                  )?.label ?? formatLabel(decision.action_type);
+                return (
+                  <li key={`${decision.expected_turn}-${index}`}>
+                    <span>Turn {decision.expected_turn + 1}</span>
+                    <strong>{label}</strong>
+                  </li>
+                );
+              })}
+            </ol>
+          ) : (
             <p className="briefing-description">
-              The debrief uses saved mission evidence. AI availability may vary;
-              simulation values always come from the deterministic engine.
+              No decisions were recorded for this run.
             </p>
-            <form onSubmit={(event) => void handleGenerateDebrief(event)}>
-              <label className="form-field" htmlFor="student-explanation">
-                <span>Your explanation (optional)</span>
-                <textarea
-                  id="student-explanation"
-                  maxLength={2000}
-                  rows={4}
-                  value={explanation}
-                  onChange={(event) => setExplanation(event.target.value)}
-                  placeholder="What trade-off did you consider? Which saved result supports your thinking?"
-                />
-              </label>
-              {report.status !== "completed" && (
-                <p className="form-hint">
-                  You can receive a factual debrief now. Reasoning feedback
-                  becomes available after the mission is complete.
-                </p>
-              )}
-              <button
-                className="primary-action"
-                type="submit"
-                disabled={generating}
-              >
-                {generating
-                  ? "Preparing debrief…"
-                  : "Generate learning debrief"}
-              </button>
-            </form>
+          )}
+        </section>
 
-            {debriefError && (
-              <div className="notice-card notice-card-error" role="alert">
-                <p>{debriefError}</p>
-              </div>
-            )}
-            {debrief && (
-              <article className="debrief-result" aria-live="polite">
-                <div className="reflection-result-heading">
-                  <h3>Grounded reflection</h3>
+        <section className="surface-card" aria-labelledby="events-title">
+          <p className="eyebrow">Scenario record</p>
+          <h2 id="events-title">Events</h2>
+          {report.events.length > 0 ? (
+            <ul className="report-event-list">
+              {report.events.map((event, index) => (
+                <li key={`${event.turn_number}-${event.event_type}-${index}`}>
+                  <strong>
+                    Turn {event.turn_number} · {formatLabel(event.event_type)}
+                  </strong>
                   <span>
-                    {debrief.source === "nvidia"
-                      ? "AI-assisted"
-                      : "Factual fallback"}
+                    {typeof event.payload.message === "string"
+                      ? event.payload.message
+                      : Object.entries(event.payload)
+                          .filter(([, value]) => typeof value !== "object")
+                          .map(
+                            ([name, value]) =>
+                              `${name.replaceAll("_", " ")} ${String(value)}`,
+                          )
+                          .join(" · ") || "Recorded event"}
                   </span>
-                </div>
-                <p>{debrief.debrief.summary}</p>
-                <ul className="objective-list">
-                  {debrief.debrief.trade_offs.map((tradeOff) => (
-                    <li key={tradeOff}>{tradeOff}</li>
-                  ))}
-                </ul>
-                <h3 className="report-subheading">Try in a replay</h3>
-                <p>{debrief.debrief.replay_suggestion}</p>
-                {debrief.debrief.reasoning_assessment && (
-                  <ReasoningFeedback
-                    assessment={debrief.debrief.reasoning_assessment}
-                  />
-                )}
-                {debrief.ai_feedback_status === "ai_unavailable" && (
-                  <p className="form-hint">
-                    AI is unavailable; this feedback uses validated saved facts
-                    only.
-                  </p>
-                )}
-              </article>
-            )}
-          </section>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="briefing-description">
+              No scripted events were recorded for this run.
+            </p>
+          )}
+        </section>
+      </div>
 
-          <div className="report-footer-actions">
-            <Link
-              className="secondary-action"
-              to={`/simulation?session_id=${encodeURIComponent(sessionId)}&mission_id=${encodeURIComponent(mission.id)}`}
-            >
-              Return to simulation
-            </Link>
-            <Link
-              className="text-link"
-              to={`/replay?source_session_id=${encodeURIComponent(sessionId)}`}
-            >
-              Compare an alternative plan
-            </Link>
-          </div>
-        </>
+      {report.assessment && (
+        <section className="surface-card" aria-labelledby="saved-assessment">
+          <p className="eyebrow">Previously saved feedback</p>
+          <h2 id="saved-assessment">Reasoning evidence</h2>
+          {savedAssessment ? (
+            <ReasoningFeedback assessment={savedAssessment} />
+          ) : (
+            <p>
+              {savedAssessmentText ??
+                "A prior reasoning assessment is attached to this report."}
+            </p>
+          )}
+        </section>
       )}
-    </section>
+
+      <section
+        className="surface-card debrief-section"
+        aria-labelledby="debrief-title"
+      >
+        <p className="eyebrow">Reflect on your choices</p>
+        <h2 id="debrief-title">Learning debrief</h2>
+        <p className="briefing-description">
+          The debrief uses saved mission evidence. AI availability may vary;
+          simulation values always come from the deterministic engine.
+        </p>
+        <form onSubmit={(event) => void onGenerateDebrief(event)}>
+          <label className="form-field" htmlFor="student-explanation">
+            <span>Your explanation (optional)</span>
+            <textarea
+              id="student-explanation"
+              maxLength={2000}
+              rows={4}
+              value={explanation}
+              onChange={(event) => setExplanation(event.target.value)}
+              placeholder="What trade-off did you consider? Which saved result supports your thinking?"
+            />
+          </label>
+          {report.status !== "completed" && (
+            <p className="form-hint">
+              You can receive a factual debrief now. Reasoning feedback becomes
+              available after the mission is complete.
+            </p>
+          )}
+          <button
+            className="primary-action"
+            type="submit"
+            disabled={generating}
+          >
+            {generating ? "Preparing debrief…" : "Generate learning debrief"}
+          </button>
+        </form>
+
+        {debriefError && (
+          <div className="notice-card notice-card-error" role="alert">
+            <p>{debriefError}</p>
+          </div>
+        )}
+        {debrief && (
+          <article className="debrief-result" aria-live="polite">
+            <div className="reflection-result-heading">
+              <h3>Grounded reflection</h3>
+              <span>
+                {debrief.source === "nvidia"
+                  ? "AI-assisted"
+                  : "Factual fallback"}
+              </span>
+            </div>
+            <p>{debrief.debrief.summary}</p>
+            <ul className="objective-list">
+              {debrief.debrief.trade_offs.map((tradeOff) => (
+                <li key={tradeOff}>{tradeOff}</li>
+              ))}
+            </ul>
+            <h3 className="report-subheading">Try in a replay</h3>
+            <p>{debrief.debrief.replay_suggestion}</p>
+            {debrief.debrief.reasoning_assessment && (
+              <ReasoningFeedback
+                assessment={debrief.debrief.reasoning_assessment}
+              />
+            )}
+            {debrief.ai_feedback_status === "ai_unavailable" && (
+              <p className="form-hint">
+                AI is unavailable; this feedback uses validated saved facts
+                only.
+              </p>
+            )}
+          </article>
+        )}
+      </section>
+
+      <div className="report-footer-actions">
+        <Link
+          className="secondary-action"
+          to={`/simulation?sessionId=${encodeURIComponent(sessionId)}&missionId=${encodeURIComponent(mission.id)}`}
+        >
+          Return to simulation
+        </Link>
+        <Link
+          className="text-link"
+          to={`/replay?source_session_id=${encodeURIComponent(sessionId)}`}
+        >
+          Compare an alternative plan
+        </Link>
+      </div>
+    </>
   );
 }
 
@@ -400,6 +462,15 @@ function ReasoningFeedback({
 function readText(value: Record<string, unknown>, key: string) {
   const candidate = value[key];
   return typeof candidate === "string" ? candidate : null;
+}
+
+function isReasoningAssessment(value: unknown): value is ReasoningAssessment {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<ReasoningAssessment>;
+  return (
+    typeof candidate.overall_feedback === "string" &&
+    Array.isArray(candidate.criteria)
+  );
 }
 
 function formatLabel(value: string) {

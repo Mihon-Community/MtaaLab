@@ -34,12 +34,14 @@ export function DecisionPanel({
   const action = mission.action_catalogue.find(
     (item) => item.action_type === selectedAction,
   );
-  const parameterEntries = action ? Object.entries(action.parameters) : [];
+  const parameterEntries = action
+    ? Object.entries(action.parameters ?? {})
+    : [];
   const missingParameters = parameterEntries.some(
     ([name]) => parameters[name] === undefined || parameters[name] === "",
   );
   const cannotAfford =
-    action !== undefined && action.cost > state.budget_remaining;
+    action !== undefined && (action.cost ?? 0) > state.budget_remaining;
   const alreadyUsed =
     action?.one_time === true &&
     state.used_actions.includes(action.action_type);
@@ -67,7 +69,7 @@ export function DecisionPanel({
   function setParameter(
     name: string,
     value: string,
-    definition: MissionAction["parameters"][string],
+    definition: NonNullable<MissionAction["parameters"]>[string],
   ) {
     if (value === "") {
       setParameters((current) => ({ ...current, [name]: "" }));
@@ -104,8 +106,9 @@ export function DecisionPanel({
         <legend>Available actions</legend>
         {mission.action_catalogue.map((item) => {
           const used =
-            item.one_time && state.used_actions.includes(item.action_type);
-          const unaffordable = item.cost > state.budget_remaining;
+            item.one_time === true &&
+            state.used_actions.includes(item.action_type);
+          const unaffordable = (item.cost ?? 0) > state.budget_remaining;
           return (
             <label
               className={`action-option${selectedAction === item.action_type ? " action-option-selected" : ""}`}
@@ -121,8 +124,8 @@ export function DecisionPanel({
               <span className="action-option-copy">
                 <strong>{item.label}</strong>
                 <span>
-                  {item.cost} credits
-                  {item.delay_turns > 0
+                  {item.cost ?? 0} credits
+                  {(item.delay_turns ?? 0) > 0
                     ? ` · takes effect after ${item.delay_turns} turn${item.delay_turns === 1 ? "" : "s"}`
                     : ""}
                   {used ? " · already used" : ""}
@@ -211,7 +214,7 @@ export function DecisionPanel({
         <p>{effects}</p>
         {action && (
           <p className="preview-cost">
-            Cost: <strong>{action.cost} fictional budget credits</strong>
+            Cost: <strong>{action.cost ?? 0} fictional budget credits</strong>
           </p>
         )}
       </div>
@@ -268,13 +271,13 @@ function describeEffect(
   parameters: Record<string, number | string>,
   mission: MissionDetail,
 ) {
-  const effectType = action.effect.type;
+  const effectType = action.effect?.type;
   if (effectType === "reduce_leakage") {
     return "Repairs the main pipe and reduces network leakage according to the mission rules.";
   }
   if (effectType === "reduce_demand") {
-    const sector = String(action.effect.sector ?? "community");
-    const parameterName = String(action.effect.ratio_parameter ?? "");
+    const sector = String(action.effect?.sector ?? "community");
+    const parameterName = String(action.effect?.ratio_parameter ?? "");
     const ratio = parameters[parameterName];
     const amount =
       typeof ratio === "number" ? ` by ${Math.round(ratio * 100)}%` : "";
