@@ -30,9 +30,10 @@ export function WaterAccountingPanel({
     );
   }
 
-  const withdrawals = Object.entries(
-    accounting.withdrawals_by_sector,
-  ) as [Sector, number][];
+  const withdrawals = Object.entries(accounting.withdrawals_by_sector) as [
+    Sector,
+    number,
+  ][];
   const totalWithdrawals = withdrawals.reduce(
     (sum, [, amount]) => sum + amount,
     0,
@@ -95,5 +96,7 @@ function round(value: number): number {
 }
 
 function formatLabel(value: string): string {
-  return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }

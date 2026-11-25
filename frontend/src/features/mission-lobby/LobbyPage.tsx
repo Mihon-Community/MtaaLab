@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ApiError, getMissions } from "../../services/api";
+import { formatGradeBand } from "../../lib/utils";
 import type { MissionListItem } from "../../types/api";
 
 export function LobbyPage() {
@@ -103,7 +104,7 @@ export function LobbyPage() {
               <p className="mission-description">{mission.description}</p>
               <div className="mission-card-meta">
                 <span>
-                  Grade band <strong>{mission.grade_band}</strong>
+                  <strong>{formatGradeBand(mission.grade_band)}</strong>
                 </span>
                 <span>Scenario v{mission.scenario_version}</span>
               </div>

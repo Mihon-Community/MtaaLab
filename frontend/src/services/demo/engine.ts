@@ -7,11 +7,7 @@
  * rendering always uses values returned by the API and never calls this code.
  */
 import type { DecisionRequest, Sector, SimulationState } from "../../types/api";
-import {
-  MTONI_SCENARIO,
-  type Scenario,
-  type ScenarioAction,
-} from "./scenario";
+import { MTONI_SCENARIO, type Scenario, type ScenarioAction } from "./scenario";
 
 const EPSILON = 1e-8;
 const ALLOCATION_EPSILON = 1e-12;
@@ -145,7 +141,9 @@ function asState(value: unknown): SimulationState {
     wellbeing: Number(value.wellbeing),
     allocation_policy: String(value.allocation_policy),
     used_actions: Array.isArray(value.used_actions)
-      ? value.used_actions.filter((item): item is string => typeof item === "string")
+      ? value.used_actions.filter(
+          (item): item is string => typeof item === "string",
+        )
       : [],
     pending_effects: Array.isArray(value.pending_effects)
       ? (value.pending_effects as SimulationState["pending_effects"])
@@ -188,10 +186,14 @@ function validateAction(
     }
     const value = Number(raw);
     if (rule.minimum !== undefined && value < rule.minimum) {
-      throw new EngineValidationError(`${name} is below its configured minimum`);
+      throw new EngineValidationError(
+        `${name} is below its configured minimum`,
+      );
     }
     if (rule.maximum !== undefined && value > rule.maximum) {
-      throw new EngineValidationError(`${name} is above its configured maximum`);
+      throw new EngineValidationError(
+        `${name} is above its configured maximum`,
+      );
     }
   }
   for (const prerequisite of definition.prerequisites ?? []) {
@@ -214,7 +216,9 @@ function validateAction(
       String(definition.effect.sector),
     )
   ) {
-    throw new EngineValidationError("demand effect refers to an unknown sector");
+    throw new EngineValidationError(
+      "demand effect refers to an unknown sector",
+    );
   }
   if (
     action.action_type === "change_allocation" &&
@@ -316,7 +320,11 @@ function allocateWater(
         `critical minimum refers to unknown sector ${sector}`,
       );
     }
-    if (!Number.isFinite(minimumShare) || minimumShare < 0 || minimumShare > 1) {
+    if (
+      !Number.isFinite(minimumShare) ||
+      minimumShare < 0 ||
+      minimumShare > 1
+    ) {
       throw new EngineValidationError(
         `critical minimum for ${sector} must be in [0, 1]`,
       );
@@ -440,7 +448,9 @@ export function calculateNextState(
   const policyId = String(draft.allocation_policy);
   const policy = scenario.allocation_policies[policyId];
   if (!policy) {
-    throw new EngineValidationError("selected allocation policy is not configured");
+    throw new EngineValidationError(
+      "selected allocation policy is not configured",
+    );
   }
   const withdrawals = allocateWater(
     distributableWater,
@@ -467,17 +477,12 @@ export function calculateNextState(
   ][]) {
     const delivered = Math.min(demand, withdrawals[sector]);
     unmetDemand[sector] = Math.max(0, demand - delivered);
-    serviceLevels[sector] = demand
-      ? clamp(delivered / demand, 0, 1)
-      : 1;
+    serviceLevels[sector] = demand ? clamp(delivered / demand, 0, 1) : 1;
   }
 
-  const cropHealthDelta = pythonRound(
-    10 * (serviceLevels.farms - 0.7),
-  );
+  const cropHealthDelta = pythonRound(10 * (serviceLevels.farms - 0.7));
   const wellbeingDelta = pythonRound(
-    6 * (serviceLevels.households - 0.7) +
-      8 * (serviceLevels.clinic - 0.7),
+    6 * (serviceLevels.households - 0.7) + 8 * (serviceLevels.clinic - 0.7),
   );
 
   const nextState = asState({
@@ -510,8 +515,7 @@ export function calculateNextState(
   };
 
   const lhs = openingReservoir + inflow;
-  const rhs =
-    closingReservoir + totalWithdrawals + actualLeakage + overflow;
+  const rhs = closingReservoir + totalWithdrawals + actualLeakage + overflow;
   if (Math.abs(lhs - rhs) > EPSILON) {
     throw new EngineValidationError("water accounting invariant was violated");
   }

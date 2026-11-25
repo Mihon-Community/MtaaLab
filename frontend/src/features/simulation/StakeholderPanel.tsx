@@ -78,7 +78,8 @@ export function StakeholderPanel({
               <div className="voice-card-heading">
                 <h3>{voice.name}</h3>
                 <span className="voice-service">
-                  {Math.round(state.service_levels[voice.sector] * 100)}% service
+                  {Math.round(state.service_levels[voice.sector] * 100)}%
+                  service
                 </span>
               </div>
               <p className="voice-perspective">{voice.perspective}</p>
@@ -103,10 +104,10 @@ export function StakeholderPanel({
       </ul>
 
       <p className="form-hint">
-        Values above are from the latest confirmed state ({waterUnit}). The
-        AI stakeholder dialogue for each turn is written by the simulation
-        service; this panel reports its recorded status and never generates
-        dialogue locally.
+        Values above are from the latest confirmed state ({waterUnit}). The AI
+        stakeholder dialogue for each turn is written by the simulation service;
+        this panel reports its recorded status and never generates dialogue
+        locally.
       </p>
     </section>
   );
@@ -128,5 +129,7 @@ function eventMentionsSector(eventType: string, sector: Sector): boolean {
 }
 
 function formatLabel(value: string): string {
-  return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }

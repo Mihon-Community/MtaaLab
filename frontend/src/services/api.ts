@@ -31,7 +31,12 @@ export async function apiFetch<T>(
   idempotencyKey?: string,
 ): Promise<T> {
   if (isDemoMode()) {
-    const demo = await handleDemoRequest(path, init);
+    const demoHeaders = new Headers(init.headers);
+    if (idempotencyKey) demoHeaders.set("Idempotency-Key", idempotencyKey);
+    const demo = await handleDemoRequest(path, {
+      ...init,
+      headers: demoHeaders,
+    });
     if (!demo.ok)
       throw new ApiError(`API request failed (${demo.status})`, demo.status);
     return demo.body as Promise<T>;

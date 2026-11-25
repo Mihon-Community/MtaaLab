@@ -271,11 +271,7 @@ export class WorldScene extends Phaser.Scene {
 
     for (const location of WORLD_LOCATIONS) {
       if (!location.sector) continue;
-      const service = clamp(
-        state.service_levels[location.sector] ?? 0,
-        0,
-        1,
-      );
+      const service = clamp(state.service_levels[location.sector] ?? 0, 0, 1);
       const marker = this.markers.get(location.id);
       marker?.setFillStyle(serviceColor(service), 0.96);
       layer.add(
@@ -379,5 +375,7 @@ function serviceColor(service: number): number {
   const to = { r: 0x6f, g: 0x9a, b: 0x55 };
   const mix = (start: number, end: number) =>
     Math.round(start + (end - start) * service);
-  return (mix(from.r, to.r) << 16) | (mix(from.g, to.g) << 8) | mix(from.b, to.b);
+  return (
+    (mix(from.r, to.r) << 16) | (mix(from.g, to.g) << 8) | mix(from.b, to.b)
+  );
 }

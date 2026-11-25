@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { AudioControls } from "../../components/AudioControls";
 import { ApiError, createSimulation, getMission } from "../../services/api";
+import { formatGradeBand } from "../../lib/utils";
 import type { MissionDetail } from "../../types/api";
 
 export function BriefingPage() {
@@ -144,7 +145,7 @@ export function BriefingPage() {
         <>
           <div className="page-heading">
             <p className="eyebrow">
-              {mission.subject} · Grade {mission.grade_band}
+              {mission.subject} · {formatGradeBand(mission.grade_band)}
             </p>
             <h1 id="briefing-title">{mission.title}</h1>
             <p className="page-intro">{mission.description}</p>

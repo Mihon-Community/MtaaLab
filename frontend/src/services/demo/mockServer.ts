@@ -234,10 +234,7 @@ function sessionCreatedResponse(session: DemoSession): SessionCreatedResponse {
   };
 }
 
-function requireSession(
-  store: DemoStore,
-  sessionId: string,
-): DemoSession {
+function requireSession(store: DemoStore, sessionId: string): DemoSession {
   const session = store.sessions[sessionId];
   if (!session) throw new DemoHttpError(404, "Resource not found");
   return session;
@@ -344,10 +341,9 @@ function debriefFor(
 ): DebriefResponse {
   const entries = historyEntries(session);
   const finalState = session.snapshots[session.snapshots.length - 1];
-  const unmet = (Object.entries(finalState.unmet_demand_by_sector) as [
-    Sector,
-    number,
-  ][]).filter(([, amount]) => amount > 0);
+  const unmet = (
+    Object.entries(finalState.unmet_demand_by_sector) as [Sector, number][]
+  ).filter(([, amount]) => amount > 0);
 
   const tradeOffs = unmet.map(
     ([sector, amount]) =>
@@ -398,9 +394,10 @@ function debriefFor(
       referenced_facts: ["recorded_decisions", "final_state"],
     };
     debrief.reasoning_assessment = assessment;
-    session.assessment = clone(
-      assessment,
-    ) as unknown as Record<string, unknown>;
+    session.assessment = clone(assessment) as unknown as Record<
+      string,
+      unknown
+    >;
     saveStore(store);
   }
 
@@ -413,7 +410,9 @@ function debriefFor(
 }
 
 function label(value: string): string {
-  return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function parseBody(init: RequestInit): Record<string, unknown> {
@@ -579,7 +578,10 @@ export async function handleDemoRequest(
           );
         }
 
-        const result = calculateNextState(session.snapshots[session.turn], decision);
+        const result = calculateNextState(
+          session.snapshots[session.turn],
+          decision,
+        );
         session.decisions.push({
           turn: result.turn,
           action_type: decision.action_type,
@@ -615,7 +617,11 @@ export async function handleDemoRequest(
     throw new DemoHttpError(404, "Resource not found");
   } catch (error) {
     if (error instanceof DemoHttpError) {
-      return { ok: false, status: error.status, body: { detail: error.detail } };
+      return {
+        ok: false,
+        status: error.status,
+        body: { detail: error.detail },
+      };
     }
     if (error instanceof EngineValidationError) {
       return {

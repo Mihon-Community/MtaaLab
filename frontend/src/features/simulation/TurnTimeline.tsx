@@ -58,10 +58,14 @@ export function TurnTimeline({
             : "Mission started";
           const previous = index > 0 ? entries[index - 1] : null;
           const reservoirDelta = previous
-            ? roundDelta(entry.state.reservoir_level - previous.state.reservoir_level)
+            ? roundDelta(
+                entry.state.reservoir_level - previous.state.reservoir_level,
+              )
             : null;
           const budgetDelta = previous
-            ? roundDelta(entry.state.budget_remaining - previous.state.budget_remaining)
+            ? roundDelta(
+                entry.state.budget_remaining - previous.state.budget_remaining,
+              )
             : null;
           return (
             <li className="timeline-entry" key={entry.turn}>
