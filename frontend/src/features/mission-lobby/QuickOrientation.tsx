@@ -1,4 +1,9 @@
-import { CircleCheck, MessageSquareText, Search, SlidersHorizontal } from "lucide-react";
+import {
+  CircleCheck,
+  MessageSquareText,
+  Search,
+  SlidersHorizontal,
+} from "lucide-react";
 
 const STEPS = [
   {

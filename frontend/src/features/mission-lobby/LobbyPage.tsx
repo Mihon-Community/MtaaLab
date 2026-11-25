@@ -131,7 +131,11 @@ export function LobbyPage() {
                       aria-label={`View briefing for ${mission.title}`}
                     >
                       View briefing
-                      <ArrowRight aria-hidden="true" size={16} strokeWidth={2} />
+                      <ArrowRight
+                        aria-hidden="true"
+                        size={16}
+                        strokeWidth={2}
+                      />
                     </Link>
                   </Button>
                 </CardFooter>

@@ -85,16 +85,43 @@ export function MtoniHero() {
           strokeWidth="6"
           strokeLinejoin="round"
         />
-        <rect x="224" y="170" width="56" height="30" rx="6" fill="var(--card)" />
+        <rect
+          x="224"
+          y="170"
+          width="56"
+          height="30"
+          rx="6"
+          fill="var(--card)"
+        />
         <path
           d="M220 170 L252 146 L284 170 Z"
           fill="var(--destructive)"
           opacity="0.7"
         />
-        <rect x="106" y="192" width="34" height="24" rx="4" fill="var(--card)" />
-        <path d="M102 192 L123 174 L144 192 Z" fill="var(--accent-foreground)" />
-        <rect x="300" y="186" width="34" height="26" rx="4" fill="var(--card)" />
-        <path d="M296 186 L317 168 L338 186 Z" fill="var(--accent-foreground)" />
+        <rect
+          x="106"
+          y="192"
+          width="34"
+          height="24"
+          rx="4"
+          fill="var(--card)"
+        />
+        <path
+          d="M102 192 L123 174 L144 192 Z"
+          fill="var(--accent-foreground)"
+        />
+        <rect
+          x="300"
+          y="186"
+          width="34"
+          height="26"
+          rx="4"
+          fill="var(--card)"
+        />
+        <path
+          d="M296 186 L317 168 L338 186 Z"
+          fill="var(--accent-foreground)"
+        />
         <path
           d="M18 238 C96 226 160 246 230 230 C300 214 350 244 408 230"
           fill="none"
