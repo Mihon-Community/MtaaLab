@@ -28,11 +28,22 @@
               ? prefs.mode
               : "system";
           var resolved = mode === "system" ? (dark ? "dark" : "light") : mode;
+          var palette =
+            prefs.palette === "mtoni" ||
+            prefs.palette === "ocean" ||
+            prefs.palette === "savanna" ||
+            prefs.palette === "terracotta" ||
+            prefs.palette === "jacaranda" ||
+            prefs.palette === "contrast"
+              ? prefs.palette
+              : "mtoni";
           var moreContrast = window.matchMedia(
             "(prefers-contrast: more)",
           ).matches;
           var contrast =
-            prefs.contrast === "high" || (!prefs.contrast && moreContrast)
+            palette === "contrast" ||
+            prefs.contrast === "high" ||
+            (!prefs.contrast && moreContrast)
               ? "high"
               : "standard";
           var scale =
@@ -41,6 +52,7 @@
               : 1;
           var root = document.documentElement;
           root.dataset.theme = resolved;
+          root.dataset.palette = palette;
           root.classList.toggle("dark", resolved === "dark");
           root.dataset.contrast = contrast;
           root.style.setProperty("--text-scale", String(scale));

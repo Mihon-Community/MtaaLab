@@ -8,12 +8,17 @@ import {
   type ReactNode,
 } from "react";
 
+import { isPaletteId, type PaletteId } from "./palettes";
+
 export type ThemeMode = "light" | "dark" | "system";
 export type ContrastMode = "standard" | "high";
 export type MotionMode = "system" | "reduce";
 
 export interface UiPreferences {
+  /** Appearance mode, independent of the brand palette. */
   mode: ThemeMode;
+  /** Brand palette; "contrast" is the sixth, accessibility-first theme. */
+  palette: PaletteId;
   contrast: ContrastMode;
   textScale: number;
   motion: MotionMode;
@@ -23,6 +28,7 @@ interface ThemeContextValue extends UiPreferences {
   resolvedTheme: "light" | "dark";
   reducedMotion: boolean;
   setMode: (mode: ThemeMode) => void;
+  setPalette: (palette: PaletteId) => void;
   setContrast: (contrast: ContrastMode) => void;
   setTextScale: (scale: number) => void;
   setMotion: (motion: MotionMode) => void;
@@ -34,6 +40,7 @@ const MAX_TEXT_SCALE = 1.25;
 
 const DEFAULT_PREFERENCES: UiPreferences = {
   mode: "system",
+  palette: "mtoni",
   contrast: "standard",
   textScale: 1,
   motion: "system",
@@ -66,11 +73,15 @@ export function readStoredPreferences(): UiPreferences {
     const parsed = JSON.parse(raw) as Partial<UiPreferences>;
     return {
       mode: isThemeMode(parsed.mode) ? parsed.mode : DEFAULT_PREFERENCES.mode,
-      contrast: isContrastMode(parsed.contrast)
-        ? parsed.contrast
-        : prefersMoreContrast()
+      palette: isPaletteId(parsed.palette)
+        ? parsed.palette
+        : DEFAULT_PREFERENCES.palette,
+      contrast:
+        parsed.palette === "contrast" ||
+        (isContrastMode(parsed.contrast) && parsed.contrast === "high") ||
+        (!parsed.contrast && prefersMoreContrast())
           ? "high"
-          : DEFAULT_PREFERENCES.contrast,
+          : "standard",
       textScale:
         typeof parsed.textScale === "number"
           ? clampTextScale(parsed.textScale)
@@ -108,9 +119,11 @@ export function applyPreferences(preferences: UiPreferences): void {
         : "light"
       : preferences.mode;
   root.dataset.theme = resolved;
+  root.dataset.palette = preferences.palette;
   if (resolved === "dark") root.classList.add("dark");
   else root.classList.remove("dark");
-  root.dataset.contrast = preferences.contrast;
+  root.dataset.contrast =
+    preferences.palette === "contrast" ? "high" : preferences.contrast;
   root.style.setProperty(
     "--text-scale",
     String(clampTextScale(preferences.textScale)),
@@ -180,7 +193,24 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         preferences.motion === "reduce" ||
         (preferences.motion === "system" && systemReduceMotion),
       setMode: (mode) => update({ mode }),
-      setContrast: (contrast) => update({ contrast }),
+      setPalette: (palette) =>
+        update({
+          palette,
+          contrast: palette === "contrast" ? "high" : "standard",
+        }),
+      // The legacy high-contrast toggle maps onto the sixth palette so there
+      // is only one source of truth for the visual treatment.
+      setContrast: (contrast) =>
+        setPreferences((current) => ({
+          ...current,
+          contrast,
+          palette:
+            contrast === "high"
+              ? "contrast"
+              : current.palette === "contrast"
+                ? "mtoni"
+                : current.palette,
+        })),
       setTextScale: (textScale) =>
         update({ textScale: clampTextScale(textScale) }),
       setMotion: (motion) => update({ motion }),
@@ -252,11 +282,14 @@ export function useHighContrastPreference(): boolean {
     });
     observer.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ["data-contrast"],
+      attributeFilter: ["data-contrast", "data-palette"],
     });
     return () => observer.disconnect();
   }, [context]);
 
-  if (context) return context.contrast === "high";
-  return documentContrast;
+  if (context)
+    return context.contrast === "high" || context.palette === "contrast";
+  return (
+    documentContrast || document.documentElement.dataset.palette === "contrast"
+  );
 }

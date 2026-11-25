@@ -10,6 +10,7 @@ import {
   ZapOff,
 } from "lucide-react";
 import { useTheme, type ThemeMode } from "@/lib/theme";
+import { PALETTES, type PaletteId } from "@/lib/palettes";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -43,11 +44,13 @@ const TEXT_SCALE_STEP = 0.05;
 export function DisplaySettings() {
   const {
     mode,
+    palette,
     contrast,
     textScale,
     motion,
     resolvedTheme,
     setMode,
+    setPalette,
     setContrast,
     setTextScale,
     setMotion,
@@ -60,11 +63,16 @@ export function DisplaySettings() {
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
-          size="icon"
+          size="sm"
           aria-label="Display settings"
           title="Display settings"
+          className="gap-1.5"
         >
-          <Settings2 aria-hidden="true" size={20} strokeWidth={2} />
+          <span
+            aria-hidden="true"
+            className="size-3 rounded-full border border-border bg-primary"
+          />
+          <Settings2 aria-hidden="true" size={18} strokeWidth={2} />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">
@@ -82,6 +90,24 @@ export function DisplaySettings() {
                   {resolvedTheme}
                 </span>
               ) : null}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel>Colour theme</DropdownMenuLabel>
+        <DropdownMenuRadioGroup
+          value={palette}
+          onValueChange={(value) => setPalette(value as PaletteId)}
+        >
+          {PALETTES.map((option) => (
+            <DropdownMenuRadioItem key={option.id} value={option.id}>
+              <span
+                aria-hidden="true"
+                className="size-3.5 shrink-0 rounded-full border border-border"
+                style={{ background: option.swatch }}
+              />
+              <span className="flex-1">{option.label}</span>
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>

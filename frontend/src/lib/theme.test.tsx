@@ -11,11 +11,13 @@ import {
 function Probe() {
   const {
     mode,
+    palette,
     contrast,
     textScale,
     motion,
     resolvedTheme,
     setMode,
+    setPalette,
     setContrast,
     setTextScale,
     setMotion,
@@ -24,7 +26,7 @@ function Probe() {
   return (
     <div>
       <output data-testid="summary">
-        {mode}|{contrast}|{textScale}|{motion}|{resolvedTheme}
+        {mode}|{contrast}|{textScale}|{motion}|{resolvedTheme}|{palette}
       </output>
       <button type="button" onClick={() => setMode("dark")}>
         dark
@@ -34,6 +36,12 @@ function Probe() {
       </button>
       <button type="button" onClick={() => setMode("system")}>
         system
+      </button>
+      <button type="button" onClick={() => setPalette("ocean")}>
+        ocean palette
+      </button>
+      <button type="button" onClick={() => setPalette("contrast")}>
+        contrast palette
       </button>
       <button type="button" onClick={() => setContrast("high")}>
         high contrast
@@ -60,6 +68,7 @@ afterEach(() => {
   window.localStorage.clear();
   document.documentElement.className = "";
   document.documentElement.removeAttribute("data-theme");
+  document.documentElement.removeAttribute("data-palette");
   document.documentElement.removeAttribute("data-contrast");
   document.documentElement.removeAttribute("data-motion");
   document.documentElement.removeAttribute("style");
@@ -140,7 +149,7 @@ describe("ThemeProvider", () => {
     renderProvider();
 
     expect(screen.getByTestId("summary")).toHaveTextContent(
-      /^dark\|standard\|1\.1\|system\|dark$/,
+      /^dark\|standard\|1\.1\|system\|dark\|mtoni$/,
     );
     expect(document.documentElement.dataset.theme).toBe("dark");
   });
@@ -159,16 +168,63 @@ describe("ThemeProvider", () => {
   it("applies preferences outside React for the pre-paint script", () => {
     applyPreferences({
       mode: "dark",
+      palette: "mtoni",
       contrast: "high",
       textScale: 0.95,
       motion: "reduce",
     });
 
     expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(document.documentElement.dataset.palette).toBe("mtoni");
     expect(document.documentElement.dataset.contrast).toBe("high");
     expect(document.documentElement.dataset.motion).toBe("reduce");
     expect(
       document.documentElement.style.getPropertyValue("--text-scale"),
     ).toBe("0.95");
+  });
+
+  it("selects a brand palette independently of the light/dark mode", () => {
+    renderProvider();
+
+    act(() => screen.getByRole("button", { name: "ocean palette" }).click());
+
+    expect(document.documentElement.dataset.palette).toBe("ocean");
+    expect(document.documentElement.dataset.contrast).toBe("standard");
+    expect(readStoredPreferences()).toMatchObject({
+      palette: "ocean",
+      mode: "system",
+    });
+
+    act(() => screen.getByRole("button", { name: "dark" }).click());
+
+    expect(document.documentElement.dataset.palette).toBe("ocean");
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+  });
+
+  it("makes High Contrast a selectable palette and restores standard contrast on exit", () => {
+    renderProvider();
+
+    act(() => screen.getByRole("button", { name: "contrast palette" }).click());
+
+    expect(document.documentElement.dataset.palette).toBe("contrast");
+    expect(document.documentElement.dataset.contrast).toBe("high");
+    expect(readStoredPreferences()).toMatchObject({
+      palette: "contrast",
+      contrast: "high",
+    });
+
+    act(() => screen.getByRole("button", { name: "ocean palette" }).click());
+
+    expect(document.documentElement.dataset.contrast).toBe("standard");
+    expect(readStoredPreferences().contrast).toBe("standard");
+  });
+
+  it("ignores an unknown stored palette", () => {
+    window.localStorage.setItem(
+      "mtaalab.ui-preferences",
+      JSON.stringify({ palette: "chartreuse", mode: "light" }),
+    );
+
+    expect(readStoredPreferences().palette).toBe("mtoni");
   });
 });
