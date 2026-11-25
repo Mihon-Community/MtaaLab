@@ -1,6 +1,7 @@
 import { useId, useState, type ReactElement, type ReactNode } from "react";
 import { BarChart3, Table as TableIcon } from "lucide-react";
 import { ChartContainer, type ChartConfig } from "@/components/ui/chart";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   Table,
@@ -25,6 +26,8 @@ interface ChartFrameProps {
   ariaLabel?: string;
   table: ChartTableData;
   children: ReactElement;
+  /** Show a skeleton instead of an empty plot while API data is in flight. */
+  loading?: boolean;
   legend?: ReactNode;
   className?: string;
 }
@@ -40,6 +43,7 @@ export function ChartFrame({
   ariaLabel,
   table,
   children,
+  loading = false,
   legend,
   className,
 }: ChartFrameProps) {
@@ -71,7 +75,7 @@ export function ChartFrame({
             {summary}
           </span>
         </figcaption>
-        {hasData ? (
+        {hasData && !loading ? (
           <ToggleGroup
             type="single"
             value={view}
@@ -93,7 +97,18 @@ export function ChartFrame({
         ) : null}
       </div>
 
-      {!hasData ? (
+      {loading ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex min-h-40 flex-col justify-end gap-3 rounded-xl border border-dashed border-border bg-muted/40 p-4"
+        >
+          <Skeleton className="h-3 w-2/3" />
+          <Skeleton className="h-3 w-1/2" />
+          <Skeleton className="h-24 w-full" />
+          <span className="sr-only">Loading chart data…</span>
+        </div>
+      ) : !hasData ? (
         <p
           role="status"
           className="flex min-h-40 items-center justify-center rounded-xl border border-dashed border-border bg-muted/40 px-4 text-center text-sm text-muted-foreground"

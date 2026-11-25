@@ -472,13 +472,21 @@ export function SimulationPage() {
         </div>
       </section>
 
-      {history.length > 0 ? (
+      {history.length > 0 || historyLoading ? (
         <section
           className="grid gap-6 lg:grid-cols-2"
           aria-label="Confirmed trends across turns"
         >
-          <ReservoirTrendChart entries={history} unit={waterUnit} />
-          <BudgetTrendChart entries={history} unit={budgetUnit} />
+          <ReservoirTrendChart
+            entries={history}
+            unit={waterUnit}
+            loading={historyLoading}
+          />
+          <BudgetTrendChart
+            entries={history}
+            unit={budgetUnit}
+            loading={historyLoading}
+          />
         </section>
       ) : null}
 

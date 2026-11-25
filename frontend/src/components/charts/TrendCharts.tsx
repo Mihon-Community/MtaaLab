@@ -12,6 +12,7 @@ import { formatNumber } from "./chartData";
 interface TrendChartProps {
   entries: HistoryEntry[];
   unit: string;
+  loading?: boolean;
 }
 
 type TrendKey = "reservoir_level" | "budget_remaining";
@@ -34,6 +35,7 @@ const TREND_META = {
 function TrendChart({
   entries,
   unit,
+  loading = false,
   dataKey,
 }: TrendChartProps & { dataKey: TrendKey }) {
   const meta = TREND_META[dataKey];
@@ -63,6 +65,7 @@ function TrendChart({
       title={`${meta.label} over turns`}
       summary={summary}
       config={config}
+      loading={loading}
       table={{
         columns: ["Turn", `${meta.label} (${unit || meta.noun})`],
         rows: points.map((point) => [point.turn, point.value]),
@@ -107,13 +110,29 @@ function TrendChart({
 }
 
 /** Reservoir levels from GET .../history; never a forecast. */
-export function ReservoirTrendChart({ entries, unit }: TrendChartProps) {
-  return <TrendChart entries={entries} unit={unit} dataKey="reservoir_level" />;
+export function ReservoirTrendChart({
+  entries,
+  unit,
+  loading,
+}: TrendChartProps) {
+  return (
+    <TrendChart
+      entries={entries}
+      unit={unit}
+      loading={loading}
+      dataKey="reservoir_level"
+    />
+  );
 }
 
 /** Budget values from GET .../history, on their own axis. */
-export function BudgetTrendChart({ entries, unit }: TrendChartProps) {
+export function BudgetTrendChart({ entries, unit, loading }: TrendChartProps) {
   return (
-    <TrendChart entries={entries} unit={unit} dataKey="budget_remaining" />
+    <TrendChart
+      entries={entries}
+      unit={unit}
+      loading={loading}
+      dataKey="budget_remaining"
+    />
   );
 }

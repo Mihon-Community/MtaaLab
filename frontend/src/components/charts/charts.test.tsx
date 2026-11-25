@@ -82,6 +82,24 @@ describe("chart accessibility", () => {
     expect(screen.queryByRole("group", { name: /view/ })).toBeNull();
   });
 
+  it("shows a skeleton while confirmed chart data is loading", () => {
+    render(
+      <ChartFrame
+        title="Reservoir over turns"
+        summary="Loading confirmed history…"
+        config={{}}
+        table={{ columns: ["Turn", "Reservoir"], rows: [] }}
+        loading
+      >
+        <div />
+      </ChartFrame>,
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent("Loading chart data");
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.queryByRole("group")).toBeNull();
+  });
+
   it("generates a caption from the API values and offers an identical table", () => {
     render(
       <ServiceLevelChart
