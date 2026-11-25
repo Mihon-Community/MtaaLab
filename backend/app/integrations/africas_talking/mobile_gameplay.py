@@ -972,9 +972,7 @@ def process_mobile_sms(
                 or (
                     _games_message(games, language)
                     if command in {"GAMES", "MICHEZO"}
-                    else _sms_intent_fallback(
-                        phase, language, greeting=_is_sms_greeting(command)
-                    )
+                    else _sms_intent_fallback(phase, language, greeting=_is_sms_greeting(command))
                 )
             )
             _save_sms_conversation_reply(
