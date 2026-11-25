@@ -4,14 +4,17 @@ import { Link, useSearchParams } from "react-router-dom";
 import {
   ApiError,
   createReplay,
+  getSimulationHistory,
   getSimulationReport,
   getSimulationState,
 } from "../../services/api";
 import type {
+  HistoryEntry,
   MissionReport,
   Sector,
   SessionStateResponse,
 } from "../../types/api";
+import { RunComparisonChart } from "@/components/charts";
 
 const sectors: Sector[] = ["households", "school", "clinic", "farms"];
 
@@ -29,6 +32,8 @@ export function ReplayPage() {
   );
   const [sourceReport, setSourceReport] = useState<MissionReport | null>(null);
   const [replayReport, setReplayReport] = useState<MissionReport | null>(null);
+  const [sourceHistory, setSourceHistory] = useState<HistoryEntry[]>([]);
+  const [replayHistory, setReplayHistory] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(Boolean(sourceId));
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -58,26 +63,32 @@ export function ReplayPage() {
     setReplayReport(null);
     void (async () => {
       try {
-        const [source, sourceRun] = await Promise.all([
+        const [source, sourceRun, sourceSaved] = await Promise.all([
           getSimulationState(sourceId),
           getSimulationReport(sourceId),
+          getSimulationHistory(sourceId),
         ]);
         if (active) {
           setSourceState(source);
           setSourceReport(sourceRun);
+          setSourceHistory(sourceSaved.entries);
         }
         if (replayId) {
-          const [alternative, alternativeRun] = await Promise.all([
-            getSimulationState(replayId),
-            getSimulationReport(replayId),
-          ]);
+          const [alternative, alternativeRun, alternativeSaved] =
+            await Promise.all([
+              getSimulationState(replayId),
+              getSimulationReport(replayId),
+              getSimulationHistory(replayId),
+            ]);
           if (active) {
             setReplayState(alternative);
             setReplayReport(alternativeRun);
+            setReplayHistory(alternativeSaved.entries);
           }
         } else if (active) {
           setReplayState(null);
           setReplayReport(null);
+          setReplayHistory([]);
         }
       } catch (cause) {
         if (active) setError(describeError(cause));
@@ -282,6 +293,14 @@ export function ReplayPage() {
               they do not represent a separate simulation calculation.
             </p>
           </section>
+
+          <RunComparisonChart
+            original={sourceReport}
+            alternative={replayReport}
+            originalHistory={sourceHistory}
+            alternativeHistory={replayHistory}
+            waterUnit="water units"
+          />
 
           <div className="comparison-decisions">
             <DecisionSummary

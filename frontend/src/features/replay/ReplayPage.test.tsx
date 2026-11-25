@@ -104,6 +104,33 @@ describe("ReplayPage", () => {
             mission_id: "mission-1",
           });
         }
+        if (url.endsWith("/api/simulations/source-1/history")) {
+          return response({
+            session_id: "source-1",
+            entries: [
+              {
+                turn: 0,
+                action: null,
+                events: [],
+                state: state("source-1", 70).state,
+                state_hash: null,
+                ai_feedback_status: null,
+              },
+            ],
+            limit: 100,
+            offset: 0,
+            total: 1,
+          });
+        }
+        if (url.endsWith("/api/simulations/replay-1/history")) {
+          return response({
+            session_id: "replay-1",
+            entries: [],
+            limit: 100,
+            offset: 0,
+            total: 0,
+          });
+        }
         if (url.endsWith("/api/simulations/replay-1/state")) {
           return response(state("replay-1", 82));
         }

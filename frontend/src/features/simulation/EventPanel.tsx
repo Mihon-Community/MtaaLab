@@ -3,6 +3,7 @@ import type {
   SimulationEvent,
   WaterAccounting,
 } from "../../types/api";
+import { WaterAccountingChart } from "@/components/charts";
 import { WaterAccountingPanel } from "./WaterAccountingPanel";
 
 interface EventPanelProps {
@@ -118,6 +119,9 @@ export function EventPanel({
         </article>
       )}
 
+      {accounting ? (
+        <WaterAccountingChart accounting={accounting} waterUnit={waterUnit} />
+      ) : null}
       <WaterAccountingPanel accounting={accounting} waterUnit={waterUnit} />
     </section>
   );

@@ -21,6 +21,8 @@ import type {
   SessionStateResponse,
   WaterAccounting,
 } from "../../types/api";
+import { toast } from "sonner";
+import { BudgetTrendChart, ReservoirTrendChart } from "@/components/charts";
 import { EventPanel } from "./EventPanel";
 import { InspectionPanel } from "./InspectionPanel";
 import { ResourceHUD } from "./ResourceHUD";
@@ -55,9 +57,9 @@ export function SimulationPage() {
   const [lastEvents, setLastEvents] = useState<NonNullable<
     HistoryEntry["events"]
   > | null>(null);
-  const [lastAccounting, setLastAccounting] = useState<
-    WaterAccounting | null
-  >(null);
+  const [lastAccounting, setLastAccounting] = useState<WaterAccounting | null>(
+    null,
+  );
   const [stateAttempt, setStateAttempt] = useState(0);
   const [missionAttempt, setMissionAttempt] = useState(0);
   const [historyAttempt, setHistoryAttempt] = useState(0);
@@ -246,6 +248,7 @@ export function SimulationPage() {
       setLastEvents(result.events);
       setLastAccounting(result.water_accounting);
       setFeedbackStatus(result.ai_feedback_status);
+      toast.success(`Turn ${result.turn} confirmed`);
       setReflection(null);
       pendingRequest.current = null;
       setStateError(null);
@@ -465,6 +468,16 @@ export function SimulationPage() {
           <strong>{Math.round(state.crop_health)}%</strong>
         </div>
       </section>
+
+      {history.length > 0 ? (
+        <section
+          className="grid gap-6 lg:grid-cols-2"
+          aria-label="Confirmed trends across turns"
+        >
+          <ReservoirTrendChart entries={history} unit={waterUnit} />
+          <BudgetTrendChart entries={history} unit={budgetUnit} />
+        </section>
+      ) : null}
 
       <div className="world-inspection-layout">
         <section

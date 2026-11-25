@@ -5,13 +5,20 @@ import {
   ApiError,
   getMission,
   getSimulationDebrief,
+  getSimulationHistory,
   getSimulationReport,
 } from "../../services/api";
 import type {
   DebriefResponse,
+  HistoryEntry,
   MissionDetail,
   MissionReport,
 } from "../../types/api";
+import {
+  BudgetTrendChart,
+  ReservoirTrendChart,
+  ServiceLevelChart,
+} from "@/components/charts";
 
 export function ReportPage() {
   const [searchParams] = useSearchParams();
@@ -19,6 +26,7 @@ export function ReportPage() {
   const [report, setReport] = useState<MissionReport | null>(null);
   const [mission, setMission] = useState<MissionDetail | null>(null);
   const [debrief, setDebrief] = useState<DebriefResponse | null>(null);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [explanation, setExplanation] = useState("");
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -45,10 +53,14 @@ export function ReportPage() {
     void (async () => {
       try {
         const result = await getSimulationReport(sessionId);
-        const missionInfo = await getMission(result.mission_id);
+        const [missionInfo, savedHistory] = await Promise.all([
+          getMission(result.mission_id),
+          getSimulationHistory(sessionId),
+        ]);
         if (active) {
           setReport(result);
           setMission(missionInfo);
+          setHistory(savedHistory.entries);
         }
       } catch (cause) {
         if (active) setError(describeError(cause));
@@ -181,23 +193,22 @@ export function ReportPage() {
                 value={`${Math.round(report.outcomes.crop_health)}%`}
               />
             </div>
-            <h3 className="report-subheading">Community service levels</h3>
-            <ul className="sector-list">
-              {Object.entries(report.outcomes.service_levels).map(
-                ([sector, serviceLevel]) => (
-                  <li key={sector}>
-                    <span>{formatLabel(sector)}</span>
-                    <span>{Math.round(serviceLevel * 100)}%</span>
-                    <meter
-                      min={0}
-                      max={1}
-                      value={serviceLevel}
-                      aria-label={`${formatLabel(sector)} service level`}
-                    />
-                  </li>
-                ),
-              )}
-            </ul>
+            <ServiceLevelChart
+              serviceLevels={report.outcomes.service_levels}
+              unmetDemand={report.outcomes.unmet_demand_by_sector}
+            />
+            {history.length > 0 ? (
+              <div className="grid gap-6 lg:grid-cols-2">
+                <ReservoirTrendChart
+                  entries={history}
+                  unit={mission.units.water ?? "water units"}
+                />
+                <BudgetTrendChart
+                  entries={history}
+                  unit={mission.units.budget ?? "budget credits"}
+                />
+              </div>
+            ) : null}
           </section>
 
           <div className="report-columns">

@@ -7,11 +7,13 @@ import {
   getMissions,
   getSimulationReport,
 } from "../../services/api";
+import { formatGradeBand } from "../../lib/utils";
 import type {
   MissionDetail,
   MissionListItem,
   MissionReport,
 } from "../../types/api";
+import { ServiceLevelChart } from "@/components/charts";
 
 export function TeacherPage() {
   const [missions, setMissions] = useState<MissionListItem[]>([]);
@@ -133,7 +135,7 @@ export function TeacherPage() {
                   <p>{mission.description}</p>
                 </div>
                 <span className="teacher-grade">
-                  Grade {mission.grade_band}
+                  {formatGradeBand(mission.grade_band)}
                 </span>
               </article>
             ))}
@@ -217,6 +219,10 @@ export function TeacherPage() {
                 <strong>{Math.round(report.outcomes.crop_health)}%</strong>
               </div>
             </div>
+            <ServiceLevelChart
+              serviceLevels={report.outcomes.service_levels}
+              unmetDemand={report.outcomes.unmet_demand_by_sector}
+            />
             <p className="form-hint">
               These are recorded simulation values and formative evidence, not a
               student grade.
