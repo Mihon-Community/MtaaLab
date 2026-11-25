@@ -118,39 +118,213 @@ def _is_direct_sms_command(command: str) -> bool:
     return False
 
 
-def _exact_game_index(command: str, games: list[Any]) -> int | None:
-    """Match short game names directly; longer natural phrasing goes through NVIDIA."""
-    text = " ".join(command.casefold().strip().split())
+def _game_aliases(game: Any) -> set[str]:
+    title = str(getattr(game, "title", "Game"))
+    lowered = title.casefold()
+    aliases = {lowered}
+    if "mama mboga" in lowered or "soko" in lowered:
+        aliases.update({"soko", "market", "market game"})
+    elif "fever" in lowered:
+        aliases.update({"fever", "fever response"})
+    elif "chama" in lowered:
+        aliases.update({"chama", "trust circle"})
+    elif "mtoni" in lowered or "water" in lowered:
+        aliases.update({"mtoni", "water game", "mtoni water"})
+    return aliases
+
+
+def _bare_game_index(command: str, games: list[Any]) -> int | None:
+    """Recognize a bare game name as a request to learn about it."""
+    text = " ".join(command.casefold().strip(" .,!?;:").split())
+    return next(
+        (index for index, game in enumerate(games, start=1) if text in _game_aliases(game)),
+        None,
+    )
+
+
+def _game_explanation_index(command: str, games: list[Any]) -> int | None:
+    """Find a game name in a clear explanation question for a useful offline fallback."""
+    bare_index = _bare_game_index(command, games)
+    if bare_index is not None:
+        return bare_index
+    text = " ".join(command.casefold().strip(" .,!?;:").split())
+    question_starts = (
+        "what ",
+        "what's ",
+        "whats ",
+        "how ",
+        "tell me ",
+        "explain ",
+        "describe ",
+        "can you tell ",
+        "can you explain ",
+        "teach me ",
+    )
+    if not text.startswith(question_starts):
+        return None
+    padded_text = f" {text} "
     for index, game in enumerate(games, start=1):
-        title = str(getattr(game, "title", "Game"))
-        lowered = title.casefold()
-        aliases = {lowered}
-        if "mama mboga" in lowered or "soko" in lowered:
-            aliases.update({"soko", "market", "market game"})
-        elif "fever" in lowered:
-            aliases.update({"fever", "fever response"})
-        elif "chama" in lowered:
-            aliases.update({"chama", "trust circle"})
-        elif "mtoni" in lowered or "water" in lowered:
-            aliases.update({"mtoni", "water game", "mtoni water"})
-        if text in aliases:
+        if any(f" {alias} " in padded_text for alias in _game_aliases(game)):
             return index
     return None
 
 
-def _sms_help(language: str) -> str:
+def _exact_game_index(command: str, games: list[Any]) -> int | None:
+    """Resolve explicit play-by-name commands without confusing them with questions."""
+    text = " ".join(command.upper().strip(" .,!?;:").split())
+    prefixes = ("PLEASE PLAY ", "PLAY ", "START GAME ", "START ", "CHEZA ")
+    target = next((text[len(prefix) :] for prefix in prefixes if text.startswith(prefix)), None)
+    if target is None:
+        return None
+    target = " ".join(target.strip(" .,!?;:").split()).casefold()
+    if target.startswith("the "):
+        target = target[4:]
+    for index, game in enumerate(games, start=1):
+        if target in _game_aliases(game):
+            return index
+    return None
+
+
+def _sms_game_information(games: list[Any]) -> list[dict[str, str]]:
+    """Build a short, factual SMS guide from the four published game concepts."""
+    result = []
+    for index, game in enumerate(games, start=1):
+        title = str(getattr(game, "title", "Game"))
+        lowered = title.casefold()
+        if "mama mboga" in lowered or "soko" in lowered:
+            aliases = "Soko, market stall"
+            description = (
+                "Soko (Mama Mboga Market): run a stall for six days. Each day choose a plan "
+                "setting stock and price: Value orders 5 at 6 credits, Steady 5 at 8, "
+                "Premium 10 at 10. Compare demand, sales, cash, leftovers and spoilage."
+            )
+        elif "fever" in lowered:
+            aliases = "Fever, Mtoni Fever"
+            description = (
+                "Fever (Mtoni Fever Response): a six-turn community prevention-planning game. "
+                "Use a limited budget for water points, handwashing and clinic readiness; "
+                "some improvements take a turn. It does not simulate disease incidence."
+            )
+        elif "chama" in lowered:
+            aliases = "Chama, trust circle"
+            description = (
+                "Chama Trust Circle: a six-meeting fictional savings group. Add 10 tokens to "
+                "the protected reserve or approve requests for 30 or 40; compare the pool and "
+                "repayments. No real money moves."
+            )
+        elif "mtoni" in lowered or "water" in lowered:
+            aliases = "Mtoni, water resilience"
+            description = (
+                "Mtoni Water Resilience: a six-turn community water-management game. Choose "
+                "pipe repairs, conservation, water allocation, storage or efficient irrigation; "
+                "manage water and budget."
+            )
+        else:
+            aliases = title[:100]
+            description = (
+                "A classroom simulation. Choose a listed action and compare saved results."
+            )
+        result.append(
+            {"index": str(index), "title": title[:100], "aliases": aliases, "about": description}
+        )
+    return result
+
+
+_SMS_PLAYING_GUIDE = (
+    "GAMES gives a short catalog. Text a game title to learn what you do, what you choose each "
+    "turn, and how results change. "
+    "PLAY n or PLAY <name> starts it. Each turn, send a listed number or describe your action; "
+    "WHY 1-3 are reflections. CONTINUE resumes."
+)
+
+
+def _game_howto_message(index: int, games: list[Any], language: str) -> str:
+    """Reliable one-SMS explanation when a model cannot explain a bare game-name request."""
+    if not 1 <= index <= len(games):
+        return _games_message(games, language)
+    title = str(getattr(games[index - 1], "title", "Game")).casefold()
+    if "mama mboga" in title or "soko" in title:
+        if language == "sw":
+            return (
+                f"Soko: Endesha kibanda kwa siku 6. Kila siku chagua bidhaa na bei; linganisha "
+                f"mauzo, pesa, vilivyosalia na vilivyoharibika. Tuma CHEZA {index}."
+            )
+        return (
+            f"Soko: Run a market stall for 6 days. Each day choose a stock and price plan; "
+            f"compare sales, cash, leftovers and spoilage. Text PLAY {index} to start."
+        )
+    if "fever" in title:
+        if language == "sw":
+            return (
+                f"Fever: Panga maji, unawaji mikono na kliniki kwa zamu 6. Chagua uboreshaji; "
+                f"baadhi huchukua zamu 1. Ugonjwa hauigizwi. Tuma CHEZA {index}."
+            )
+        return (
+            f"Fever: Plan water, handwashing and clinic readiness for 6 turns. Choose an "
+            f"improvement each turn; some take 1 turn. No illness is simulated. "
+            f"PLAY {index} starts."
+        )
+    if "chama" in title:
+        if language == "sw":
+            return (
+                f"Chama: Simamia kikundi cha akiba cha kubuni kwa mikutano 6. Weka tokeni 10 au "
+                f"kubali maombi ya 30/40; fuatilia akiba na marejesho. Hakuna pesa halisi. "
+                f"CHEZA {index}."
+            )
+        return (
+            f"Chama: Run a fictional savings group for 6 meetings. Save 10 tokens or approve "
+            f"30/40-token requests; track reserve and repayments. No real money. Text PLAY {index}."
+        )
     if language == "sw":
         return (
-            "Amri za MtaaLab\nJIUNGE <code>: unganisha\nMICHEZO: orodha\n"
-            "CHEZA <n>: anza\nENDELEA: endelea\nANZA UJUMBE: vikumbusho\nACHA: simamisha"
+            f"Mtoni: Simamia maji ya jamii kwa zamu 6. Chagua ukarabati, uhifadhi, mgao, tanki "
+            f"au umwagiliaji; fuatilia maji na bajeti. Tuma CHEZA {index}."
         )
     return (
-        "MtaaLab commands\nJOIN <code>: link phone\nGAMES: list games\n"
-        "PLAY <n>: start\nCONTINUE: resume\nOPT IN: reminders\nSTOP: reminders off"
+        f"Mtoni: Manage community water for 6 turns. Choose repairs, conservation, allocation, "
+        f"storage or irrigation; track water and budget. Text PLAY {index} to start."
     )
 
 
-def _sms_intent_fallback(phase: SMSPhase, language: str) -> str:
+def _substantive_game_explanation(reply: str, index: int, language: str) -> bool:
+    """Reject title-only replies that omit both the activity and how to begin."""
+    normalized = " ".join(reply.casefold().split())
+    start_command = f"cheza {index}" if language == "sw" else f"play {index}"
+    action_words = (
+        ("chagua", "simamia", "panga", "kila zamu", "kila siku")
+        if language == "sw"
+        else ("choose", "manage", "plan", "each turn", "each day", "run a")
+    )
+    return (
+        len(normalized) >= 70
+        and start_command in normalized
+        and any(word in normalized for word in action_words)
+    )
+
+
+def _is_sms_greeting(command: str) -> bool:
+    normalized = command.strip(" .,!?;:")
+    greetings = {
+        "HI",
+        "HELLO",
+        "HEY",
+        "HI THERE",
+        "HELLO THERE",
+        "HEY THERE",
+        "JAMBO",
+        "HABARI",
+        "HABARI GANI",
+    }
+    return normalized in greetings
+
+
+def _sms_intent_fallback(phase: SMSPhase, language: str, *, greeting: bool = False) -> str:
+    if greeting:
+        return (
+            "Habari! Naweza kukusaidia kuchagua mchezo. Tuma MICHEZO kuona michezo iliyowekwa."
+            if language == "sw"
+            else "Hi! I can help you choose a game. Text GAMES to see what's available."
+        )
     if language == "sw":
         return {
             "lobby": "Sijaelewa. Tuma MICHEZO au jina la mchezo, kama Soko.",
@@ -231,6 +405,35 @@ def _remember(state: dict[str, Any], request_key: str, response: str) -> dict[st
     }
 
 
+def _save_sms_conversation_reply(
+    *,
+    store: Any,
+    provider_id: str,
+    phone_ref: str,
+    mobile: Any,
+    language: str,
+    request_key: str,
+    response: str,
+) -> None:
+    """Cache generated text for callback retries without storing the learner's message."""
+    if not callable(getattr(store, "save_mobile", None)):
+        return
+    state = _state(mobile.state) if mobile is not None else {}
+    state.setdefault("mobile_v2", True)
+    state.setdefault("screen", "lobby")
+    state["language"] = language
+    _save(
+        store,
+        provider_id=provider_id,
+        ref=phone_ref,
+        session_id=getattr(mobile, "session_id", None),
+        state=_remember(state, request_key, response),
+        request_key=request_key,
+        now=datetime.now(UTC),
+        ttl=MOBILE_TTL,
+    )
+
+
 def _find_active(
     store: Any, gateway: SimulationGateway, student_id: UUID
 ) -> tuple[UUID, dict[str, Any], str] | None:
@@ -261,36 +464,49 @@ def _active_for_mobile(
 def _choice_rows(scenario: dict[str, Any], language: str) -> list[tuple[str, dict[str, Any], str]]:
     scenario_id = scenario.get("scenario_id")
     if scenario_id == "soko_market":
-        plan_labels = {"value": "Bei nafuu", "steady": "Bei ya kati", "premium": "Bei juu"}
+        plan_labels = {
+            "value": "Bei nafuu",
+            "steady": "Bei ya kati",
+            "premium": "Bei juu",
+        }
         return [
             (
                 "market_plan",
                 {"plan_id": plan_id},
-                plan_labels.get(plan_id, str(plan.get("label", plan_id)))
-                if language == "sw"
-                else str(plan.get("label", plan_id)),
+                (
+                    f"{plan_labels.get(plan_id, plan_id)}: agiza "
+                    f"{plan.get('order_quantity', 0)} bei {plan.get('price', 0)}"
+                    if language == "sw"
+                    else (
+                        f"{plan.get('label', plan_id)}: order "
+                        f"{plan.get('order_quantity', 0)} at "
+                        f"{plan.get('price', 0)} credits"
+                    )
+                ),
             )
             for plan_id, plan in scenario.get("plans", {}).items()
         ][:3]
     if scenario_id == "mtoni_fever":
         keys = ["install_water_point", "add_handwashing", "improve_clinic_readiness"]
         translated = ["Panga kituo cha maji", "Ongeza sehemu ya kunawa", "Imarisha kliniki"]
+        english = ["Plan water point", "Add handwashing", "Improve clinic readiness"]
         return [
             (
                 key,
                 {},
-                translated[index] if language == "sw" else str(scenario["actions"][key]["label"]),
+                translated[index] if language == "sw" else english[index],
             )
             for index, key in enumerate(keys)
         ]
     if scenario_id == "chama_circle":
         keys = ["save_tokens", "approve_request_a", "approve_request_b"]
-        translated = ["Ongeza akiba", "Ombi la A", "Ombi la B"]
+        translated = ["Ongeza akiba", "Kubali ombi A", "Kubali ombi B"]
+        english = ["Add to group reserve", "Approve request A", "Approve request B"]
         return [
             (
                 key,
                 {},
-                translated[index] if language == "sw" else str(scenario["actions"][key]["label"]),
+                translated[index] if language == "sw" else english[index],
             )
             for index, key in enumerate(keys)
         ]
@@ -328,36 +544,42 @@ def _choice_rows(scenario: dict[str, Any], language: str) -> list[tuple[str, dic
 def _turn_menu(title: str, scenario: dict[str, Any], state: dict[str, Any], language: str) -> str:
     choices = _choice_rows(scenario, language)
     labels = [f"{index} {label}" for index, (_, _, label) in enumerate(choices, 1)]
-    turn = state.get("current_turn", 0)
     total = scenario.get("number_of_turns", 6)
+    turn = min(int(state.get("current_turn", 0)) + 1, int(total))
     scenario_id = scenario.get("scenario_id")
     if scenario_id == "soko_market":
         values = (
-            f"Pesa {state.get('cash_credits', 0)} Bidhaa {state.get('stock_units', 0)}"
+            f"Pesa: {state.get('cash_credits', 0)}; bidhaa: {state.get('stock_units', 0)}"
             if language == "sw"
-            else f"Cash {state.get('cash_credits', 0)} Stock {state.get('stock_units', 0)}"
+            else f"Cash: {state.get('cash_credits', 0)}; stock: {state.get('stock_units', 0)}"
         )
     elif scenario.get("scenario_id") == "mtoni_fever":
         values = (
-            f"Bajeti {state.get('budget_tokens', 0)} Maji {state.get('safe_water_points', 0)}"
+            f"Bajeti {state.get('budget_tokens', 0)}; maji "
+            f"{state.get('safe_water_points', 0)}; unawaji "
+            f"{state.get('handwashing_points', 0)}; kliniki "
+            f"{state.get('clinic_readiness', 0)}"
             if language == "sw"
-            else f"Budget {state.get('budget_tokens', 0)} Water {state.get('safe_water_points', 0)}"
+            else f"Budget {state.get('budget_tokens', 0)}; water: "
+            f"{state.get('safe_water_points', 0)}; handwashing: "
+            f"{state.get('handwashing_points', 0)}; clinic: "
+            f"{state.get('clinic_readiness', 0)}"
         )
     elif scenario.get("scenario_id") == "chama_circle":
         values = (
-            f"Mfuko {state.get('pool_tokens', 0)} Akiba {state.get('reserve_tokens', 0)}"
+            f"Mfuko: {state.get('pool_tokens', 0)}; akiba: {state.get('reserve_tokens', 0)}"
             if language == "sw"
-            else f"Pool {state.get('pool_tokens', 0)} Reserve {state.get('reserve_tokens', 0)}"
+            else f"Pool: {state.get('pool_tokens', 0)}; reserve: {state.get('reserve_tokens', 0)}"
         )
     else:
         values = (
-            f"Maji {state.get('reservoir_level', 0)} Bajeti {state.get('budget_remaining', 0)}"
+            f"Maji: {state.get('reservoir_level', 0)}; bajeti: {state.get('budget_remaining', 0)}"
             if language == "sw"
             else (
-                f"Water {state.get('reservoir_level', 0)} Budget {state.get('budget_remaining', 0)}"
+                f"Water: {state.get('reservoir_level', 0)}; budget: "
+                f"{state.get('budget_remaining', 0)}"
             )
         )
-    prompt = "Chagua" if language == "sw" else "Choose"
     if language == "sw":
         title = {
             "soko_market": "Soko la mboga",
@@ -365,8 +587,19 @@ def _turn_menu(title: str, scenario: dict[str, Any], state: dict[str, Any], lang
             "chama_circle": "Chama",
             "mtoni": "Mtoni Maji",
         }.get(str(scenario_id), title[:18])
-    menu = "0 Menyu" if language == "sw" else "0 Menu"
-    body = "\n".join([f"{title} {turn}/{total}", values, f"{prompt}:", *labels, menu])
+        prompt = "Chagua"
+        menu = "0 Menyu"
+        body = f"{title}, zamu {turn}/{total}. {values}. {prompt}: {'; '.join(labels)}; {menu}."
+    else:
+        title = {
+            "soko_market": "Soko",
+            "mtoni_fever": "Fever",
+            "chama_circle": "Chama",
+            "mtoni": "Mtoni Water",
+        }.get(str(scenario_id), title[:18])
+        prompt = "Choose plan" if scenario_id == "soko_market" else "Choose"
+        menu = "0 Menu"
+        body = f"{title}, turn {turn}/{total}. {values}. {prompt}: {'; '.join(labels)}; {menu}."
     return body[:156]
 
 
@@ -376,20 +609,75 @@ def _games_message(games: list[Any], language: str, prefix: str = "") -> str:
     for name in names:
         lowered = name.casefold()
         if "chama" in lowered:
-            short_names.append("Chama")
+            short_names.append("Chama (savings)" if language != "sw" else "Chama (akiba)")
         elif "mama mboga" in lowered:
-            short_names.append("Soko")
+            short_names.append("Soko (market)" if language != "sw" else "Soko (soko)")
         elif "fever" in lowered:
-            short_names.append("Mtoni Homa" if language == "sw" else "Fever")
+            short_names.append("Mtoni Homa (kinga)" if language == "sw" else "Fever (prevention)")
         elif "mtoni" in lowered or "water" in lowered:
-            short_names.append("Mtoni Maji" if language == "sw" else "Mtoni water")
+            short_names.append("Mtoni Maji (maji)" if language == "sw" else "Mtoni (water)")
         else:
             short_names.append(name[:18])
-    head = "Michezo:" if language == "sw" else "Games:"
     values = [f"{index} {name}" for index, name in enumerate(short_names, 1)]
-    command = "Tuma CHEZA n" if language == "sw" else "Reply PLAY n"
-    lines = [prefix.strip(), head, *values, command]
-    return "\n".join(line for line in lines if line)[:160]
+    if not values:
+        return (
+            "Hakuna mchezo uliowekwa. Mwombe mwalimu akupe mchezo."
+            if language == "sw"
+            else "No games are assigned yet. Ask your teacher to assign one."
+        )
+    head = "Michezo:" if language == "sw" else "Games:"
+    command = (
+        "Tuma jina kujua jinsi au CHEZA n kuanza."
+        if language == "sw"
+        else "Text a title for how-to; PLAY n starts."
+    )
+    response = f"{head} {'; '.join(values)}. {command}"
+    return f"{prefix.strip()} {response}".strip()[:160]
+
+
+def _greeting_catalog_message(games: list[Any], language: str) -> str:
+    """Give a warm, actionable overview when a greeting gets a weak model reply."""
+    concepts = []
+    for index, game in enumerate(games, start=1):
+        title = str(getattr(game, "title", "Game")).casefold()
+        if "mama mboga" in title or "soko" in title:
+            label = "Soko: soko" if language == "sw" else "Soko: run a market stall"
+        elif "fever" in title:
+            label = "Homa: panga kinga" if language == "sw" else "Fever: plan prevention"
+        elif "chama" in title:
+            label = "Chama: simamia akiba" if language == "sw" else "Chama: manage savings"
+        elif "mtoni" in title or "water" in title:
+            label = "Mtoni: panga maji" if language == "sw" else "Mtoni: manage shared water"
+        else:
+            label = str(getattr(game, "title", "Game"))[:18]
+        concepts.append(f"{index} {label}")
+    if not concepts:
+        return _sms_intent_fallback("lobby", language, greeting=True)
+    if language == "sw":
+        return f"Habari! {'; '.join(concepts)}. Tuma jina kujua jinsi; CHEZA n kuanza."[:160]
+    return f"Hi! {'; '.join(concepts)}. Text a title for how-to; PLAY n starts."[:160]
+
+
+def _greeting_overview_is_useful(reply: str, games: list[Any]) -> bool:
+    """Require a model greeting to mention each assigned game and a clear next step."""
+    normalized = " ".join(reply.casefold().split())
+    if len(normalized) < 85 or "play" not in normalized:
+        return False
+    for game in games:
+        title = str(getattr(game, "title", "Game")).casefold()
+        if "mama mboga" in title or "soko" in title:
+            concepts = ("soko", "market", "stall")
+        elif "fever" in title:
+            concepts = ("fever", "homa", "prevention", "clinic")
+        elif "chama" in title:
+            concepts = ("chama", "savings", "reserve", "akiba")
+        elif "mtoni" in title or "water" in title:
+            concepts = ("mtoni", "water", "maji")
+        else:
+            concepts = (title,)
+        if not any(concept in normalized for concept in concepts):
+            return False
+    return True
 
 
 def _reflect_prompt(scenario: dict[str, Any], language: str) -> str:
@@ -404,9 +692,9 @@ def _reflect_prompt(scenario: dict[str, Any], language: str) -> str:
     else:
         labels = scenario.get("reflection_choices", {})
         choices = [f"{code} {str(item.get('label', 'Why?'))[:24]}" for code, item in labels.items()]
-    prompt = "Kwa nini?" if language == "sw" else "Why?"
+    prompt = "Sababu:" if language == "sw" else "Why?"
     menu = "0 Menyu" if language == "sw" else "0 Menu"
-    return "\n".join([prompt, *choices, menu])[:156]
+    return f"{prompt} {'; '.join(choices)}; {menu}."[:156]
 
 
 def _hint_text(scenario: dict[str, Any], language: str, level: int) -> str:
@@ -467,21 +755,19 @@ def _apply_choice(
         )
     if scenario.get("reflection_choices"):
         turn_label = "Uamuzi umehifadhiwa" if language == "sw" else "Turn saved"
-        why = "Jibu KWA NINI 1, 2, 3." if language == "sw" else "Reply WHY 1, 2 or 3."
+        why = "Jibu KWA NINI 1, 2 au 3." if language == "sw" else "Reply WHY 1, WHY 2 or WHY 3."
         suffix = f" {why}" if provider == "sms" else ""
         return (
             next_state,
-            f"{turn_label} {result.turn}. {_state_summary(scenario, next_state, language)}{suffix}"[
-                :160
-            ],
+            f"{turn_label} {result.turn}. "
+            f"{_state_summary(scenario, next_state, language)}.{suffix}"[:160],
             False,
         )
     turn_label = "Uamuzi umehifadhiwa" if language == "sw" else "Turn saved"
     return (
         next_state,
-        f"{turn_label} {result.turn}. {_state_summary(scenario, next_state, language)} Reply MENU."[
-            :160
-        ],
+        f"{turn_label} {result.turn}. "
+        f"{_state_summary(scenario, next_state, language)}. Reply MENU."[:160],
         False,
     )
 
@@ -489,21 +775,26 @@ def _apply_choice(
 def _state_summary(scenario: dict[str, Any], state: dict[str, Any], language: str = "en") -> str:
     if language == "sw":
         if scenario.get("scenario_id") == "soko_market":
-            return f"Pesa {state.get('cash_credits', 0)}; mauzo {state.get('total_sold', 0)}"
+            return f"Pesa: {state.get('cash_credits', 0)}; mauzo: {state.get('total_sold', 0)}"
         if scenario.get("scenario_id") == "mtoni_fever":
             return (
-                f"Bajeti {state.get('budget_tokens', 0)}; maji {state.get('safe_water_points', 0)}"
+                f"Bajeti: {state.get('budget_tokens', 0)}; maji: "
+                f"{state.get('safe_water_points', 0)}"
             )
         if scenario.get("scenario_id") == "chama_circle":
-            return f"Mfuko {state.get('pool_tokens', 0)}; akiba {state.get('reserve_tokens', 0)}"
-        return f"Maji {state.get('reservoir_level', 0)}; bajeti {state.get('budget_remaining', 0)}"
+            return f"Mfuko: {state.get('pool_tokens', 0)}; akiba: {state.get('reserve_tokens', 0)}"
+        return (
+            f"Maji: {state.get('reservoir_level', 0)}; bajeti: {state.get('budget_remaining', 0)}"
+        )
     if scenario.get("scenario_id") == "soko_market":
-        return f"Cash {state.get('cash_credits', 0)} sold {state.get('total_sold', 0)}"
+        return f"Cash: {state.get('cash_credits', 0)}; sold: {state.get('total_sold', 0)}"
     if scenario.get("scenario_id") == "mtoni_fever":
-        return f"Budget {state.get('budget_tokens', 0)} water {state.get('safe_water_points', 0)}"
+        return (
+            f"Budget: {state.get('budget_tokens', 0)}; water: {state.get('safe_water_points', 0)}"
+        )
     if scenario.get("scenario_id") == "chama_circle":
-        return f"Pool {state.get('pool_tokens', 0)} reserve {state.get('reserve_tokens', 0)}"
-    return f"Water {state.get('reservoir_level', 0)} budget {state.get('budget_remaining', 0)}"
+        return f"Pool: {state.get('pool_tokens', 0)}; reserve: {state.get('reserve_tokens', 0)}"
+    return f"Water: {state.get('reservoir_level', 0)}; budget: {state.get('budget_remaining', 0)}"
 
 
 def process_mobile_sms(
@@ -554,8 +845,6 @@ def process_mobile_sms(
             if language == "sw"
             else "Text OPT IN to enable reminders."
         )
-    if command in {"HELP", "MSAADA", "?"}:
-        return _sms_help(language)
     if command.startswith(("JOIN ", "JIUNGE ")):
         # A learner may paste JOIN and follow-up commands into one multiline SMS.
         # Redeem only the one-time code token; later commands are not run here.
@@ -611,7 +900,7 @@ def process_mobile_sms(
             )
         return response
 
-    if command in {"MICHEZO", "CHEZA", "ENDELEA", "MAENDELEO"}:
+    if command in {"MICHEZO", "CHEZA", "ENDELEA", "MAENDELEO", "MSAADA"}:
         language = "sw"
         setter = getattr(store, "set_preferred_language", None)
         if setter:
@@ -634,6 +923,26 @@ def process_mobile_sms(
     phase, options, reflection_codes = _sms_intent_context(
         mobile=mobile, store=store, student_id=student_id
     )
+    compact_reflection = {f"WHY{number}": f"WHY {number}" for number in ("1", "2", "3")}
+    compact_reflection.update({f"WHY-{number}": f"WHY {number}" for number in ("1", "2", "3")})
+    compact_reflection.update(
+        {f"KWA NINI{number}": f"KWA NINI {number}" for number in ("1", "2", "3")}
+    )
+    command = compact_reflection.get(command, command)
+    bare_game_index = _game_explanation_index(command, games)
+    bare_game_help = (
+        _game_howto_message(bare_game_index, games, language)
+        if bare_game_index is not None
+        else None
+    )
+    greeting_overview = (
+        _greeting_catalog_message(games, language)
+        if phase == "lobby" and _is_sms_greeting(command)
+        else None
+    )
+    game_index = _exact_game_index(command, games)
+    if game_index is not None:
+        command = f"PLAY {game_index}"
     if phase == "lobby" and command.isdigit():
         # In a game list, replying with its number is the natural SMS equivalent of PLAY n.
         command = f"PLAY {command}"
@@ -642,24 +951,76 @@ def process_mobile_sms(
     elif phase == "reflection" and command in {"HINT", "DOKEZO"}:
         command = "WHY 3"
     if phase == "lobby" and not _is_direct_sms_command(command):
-        game_index = _exact_game_index(command, games)
-        if game_index is not None:
-            command = f"PLAY {game_index}"
-        else:
-            decision = interpret_sms_intent(
-                message=message,
-                phase=phase,
-                games=[str(getattr(game, "title", "Game")) for game in games],
-                options=[],
+        decision = interpret_sms_intent(
+            message=message,
+            phase=phase,
+            games=[str(getattr(game, "title", "Game")) for game in games],
+            options=[],
+            language=language,
+            game_information=_sms_game_information(games),
+            playing_guide=_SMS_PLAYING_GUIDE,
+            current_game=(
+                _mission_title(store, mobile.session_id)
+                if mobile is not None and mobile.session_id
+                else None
+            ),
+        )
+        if decision is None or decision.intent == "unknown":
+            response = (
+                bare_game_help
+                or greeting_overview
+                or (
+                    _games_message(games, language)
+                    if command in {"GAMES", "MICHEZO"}
+                    else _sms_intent_fallback(phase, language, greeting=_is_sms_greeting(command))
+                )
             )
-            if decision is None or decision.intent == "unknown":
-                return _sms_intent_fallback(phase, language)
-            command = {
-                "list_games": "GAMES",
-                "start_game": f"PLAY {decision.selection_index}",
-                "continue_game": "CONTINUE",
-                "help": "HELP",
-            }.get(decision.intent, command)
+            _save_sms_conversation_reply(
+                store=store,
+                provider_id=mobile_id,
+                phone_ref=ref,
+                mobile=mobile,
+                language=language,
+                request_key=request_key,
+                response=response,
+            )
+            return response
+        if decision.intent == "reply":
+            response = decision.reply_text or _sms_intent_fallback(phase, language)
+            if bare_game_help is not None and not _substantive_game_explanation(
+                response, bare_game_index, language
+            ):
+                response = bare_game_help
+            elif greeting_overview is not None and not _greeting_overview_is_useful(
+                response, games
+            ):
+                response = greeting_overview
+            _save_sms_conversation_reply(
+                store=store,
+                provider_id=mobile_id,
+                phone_ref=ref,
+                mobile=mobile,
+                language=language,
+                request_key=request_key,
+                response=response,
+            )
+            return response
+        if bare_game_help is not None or greeting_overview is not None:
+            response = bare_game_help or greeting_overview
+            _save_sms_conversation_reply(
+                store=store,
+                provider_id=mobile_id,
+                phone_ref=ref,
+                mobile=mobile,
+                language=language,
+                request_key=request_key,
+                response=response,
+            )
+            return response
+        command = {
+            "start_game": f"PLAY {decision.selection_index}",
+            "continue_game": "CONTINUE",
+        }.get(decision.intent, command)
     elif phase != "lobby" and not _is_direct_sms_command(command):
         scenario = _scenario(store, mobile.session_id) if mobile.session_id else {}
         decision = interpret_sms_intent(
@@ -667,9 +1028,56 @@ def process_mobile_sms(
             phase=phase,
             games=[str(getattr(game, "title", "Game")) for game in games],
             options=options,
+            language=language,
+            game_information=_sms_game_information(games),
+            playing_guide=_SMS_PLAYING_GUIDE,
+            current_game=(
+                _mission_title(store, mobile.session_id)
+                if mobile is not None and mobile.session_id
+                else None
+            ),
         )
         if decision is None or decision.intent == "unknown":
-            return _sms_intent_fallback(phase, language)
+            response = bare_game_help or _sms_intent_fallback(
+                phase, language, greeting=_is_sms_greeting(command)
+            )
+            _save_sms_conversation_reply(
+                store=store,
+                provider_id=mobile_id,
+                phone_ref=ref,
+                mobile=mobile,
+                language=language,
+                request_key=request_key,
+                response=response,
+            )
+            return response
+        if decision.intent == "reply":
+            response = decision.reply_text or _sms_intent_fallback(phase, language)
+            if bare_game_help is not None and not _substantive_game_explanation(
+                response, bare_game_index, language
+            ):
+                response = bare_game_help
+            _save_sms_conversation_reply(
+                store=store,
+                provider_id=mobile_id,
+                phone_ref=ref,
+                mobile=mobile,
+                language=language,
+                request_key=request_key,
+                response=response,
+            )
+            return response
+        if bare_game_help is not None:
+            _save_sms_conversation_reply(
+                store=store,
+                provider_id=mobile_id,
+                phone_ref=ref,
+                mobile=mobile,
+                language=language,
+                request_key=request_key,
+                response=bare_game_help,
+            )
+            return bare_game_help
         if decision.intent == "choose_action":
             command = str(decision.selection_index)
         elif decision.intent == "answer_reflection":
@@ -703,14 +1111,10 @@ def process_mobile_sms(
             command = "WHY 3"
         else:
             command = {
-                "list_games": "GAMES",
                 "start_game": f"PLAY {decision.selection_index}",
                 "continue_game": "CONTINUE",
                 "hint": "HINT",
-                "help": "HELP",
             }.get(decision.intent, command)
-    if command == "HELP":
-        return _sms_help(language)
     if command in {"GAMES", "MICHEZO", "PLAY", "START"}:
         return _games_message(games, language)
     if command.startswith(("PLAY ", "CHEZA ")):

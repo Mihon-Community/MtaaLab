@@ -38,7 +38,8 @@ The hint ladder moves from noticing saved evidence, to comparing variables, to i
 
 | Command | Behavior |
 |---|---|
-| `HELP` | Show the short bilingual command guide. |
+| `HELP` / `HELLO` | NVIDIA replies conversationally using the learner's assigned game descriptions, current game screen, and play instructions. |
+| Natural game question | With NVIDIA configured, answer questions such as `What is Soko about?` from the checked-in game guide. |
 | `JOIN CODE` / `JIUNGE CODE` | Redeem the teacher-issued code. |
 | `GAMES` / `MICHEZO` | List games currently assigned to the learner's class. |
 | `PLAY 1` / `CHEZA 1` | Start or resume the selected game's active run. |
@@ -74,7 +75,7 @@ The production code currently uses localized short labels, but all Kiswahili gam
 - The app stores a phone ciphertext only after explicit reminder opt-in. `PHONE_ENCRYPTION_KEY` must remain stable and private for as long as consented reminders are active. `STOP` clears the ciphertext. The nudge worker sends only for opted-in records, between 09:00 and 20:00 East Africa Time, at most once per new active turn, and at most four send attempts per learner/month.
 - `MOBILE_JOIN_CODE_PEPPER` is needed to hash one-time access codes. All three mobile secrets belong in the root `.env`; never put them in `VITE_` settings or commit them.
 - The worker starts with `docker compose up --build`; it skips sends when Africa's Talking credentials are absent. It uses the same sandbox/provider credentials as backend SMS replies.
-- Callbacks and the worker are deterministic and do not call NVIDIA. Numeric results come only from the versioned rules engine. NIM can provide bounded, qualitative feedback only in the existing Mtoni web debrief flow; other games currently return a static evidence-based debrief and mark AI feedback unavailable.
+- USSD callbacks and the nudge worker are deterministic and do not call NVIDIA. SMS uses NIM to understand natural language and compose short conversational replies from the assigned game descriptions, current game screen, options, and play guide. NIM may select only a listed game/action/reflection index; numeric results and all state changes come from the versioned rules engine. NIM can also provide bounded qualitative feedback in the existing Mtoni web debrief flow; other games currently return a static evidence-based debrief and mark AI feedback unavailable.
 - SMS callback input, provider form fields, and USSD screens are bounded. Decisions are idempotent, saved per learner/game, and shared across web, SMS, and USSD. Text commands and phone numbers are not written to logs.
 - The current implementation does not collect guardian contact details or record parental/guardian authorization. Phone linking and SMS `OPT IN` are technical controls, not proof of legal authority to process a child's data. Before deployment with minors, confirm the lawful basis, guardian/school consent process, retention and deletion periods, and any transfer requirements with the organization's data-protection lead. Mark this review as **needs verification** against the [Kenya Data Protection Act resources](https://www.odpc.go.ke/data-protection-laws-kenya/); the Kenya law's provisions on children's data and best interests must be assessed for the deployment.
 - There is no grade restriction in mission discovery or the mobile link. School/class assignment and the teacher's classroom judgment determine availability.
