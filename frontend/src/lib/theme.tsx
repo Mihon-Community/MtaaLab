@@ -101,12 +101,20 @@ function systemPrefersDark(): boolean {
 export function applyPreferences(preferences: UiPreferences): void {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
-  const resolved = preferences.mode === "system" ? (systemPrefersDark() ? "dark" : "light") : preferences.mode;
+  const resolved =
+    preferences.mode === "system"
+      ? systemPrefersDark()
+        ? "dark"
+        : "light"
+      : preferences.mode;
   root.dataset.theme = resolved;
   if (resolved === "dark") root.classList.add("dark");
   else root.classList.remove("dark");
   root.dataset.contrast = preferences.contrast;
-  root.style.setProperty("--text-scale", String(clampTextScale(preferences.textScale)));
+  root.style.setProperty(
+    "--text-scale",
+    String(clampTextScale(preferences.textScale)),
+  );
   root.dataset.motion = preferences.motion;
   root.style.colorScheme = resolved;
 }
@@ -138,7 +146,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     if (!window.matchMedia) return;
     const colourQuery = window.matchMedia("(prefers-color-scheme: dark)");
     const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const handleColour = (event: MediaQueryListEvent) => setSystemDark(event.matches);
+    const handleColour = (event: MediaQueryListEvent) =>
+      setSystemDark(event.matches);
     const handleMotion = (event: MediaQueryListEvent) =>
       setSystemReduceMotion(event.matches);
     colourQuery.addEventListener("change", handleColour);
@@ -172,13 +181,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         (preferences.motion === "system" && systemReduceMotion),
       setMode: (mode) => update({ mode }),
       setContrast: (contrast) => update({ contrast }),
-      setTextScale: (textScale) => update({ textScale: clampTextScale(textScale) }),
+      setTextScale: (textScale) =>
+        update({ textScale: clampTextScale(textScale) }),
       setMotion: (motion) => update({ motion }),
     }),
     [preferences, systemDark, systemReduceMotion, update],
   );
 
-  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+  return (
+    <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
+  );
 }
 
 export function useTheme(): ThemeContextValue {
@@ -188,9 +200,63 @@ export function useTheme(): ThemeContextValue {
 }
 
 /**
+ * Like `useTheme`, but safe outside the provider (isolated page tests render
+ * components on their own). Falls back to the OS reduced-motion setting.
+ */
+function useThemeOrNull(): ThemeContextValue | null {
+  return useContext(ThemeContext);
+}
+
+/**
  * Merge the OS reduced-motion setting with the in-app override for components that
  * need a boolean (charts, count-ups, confetti-free transitions).
  */
 export function useReducedMotionPreference(): boolean {
-  return useTheme().reducedMotion;
+  const context = useThemeOrNull();
+  const [systemReduce, setSystemReduce] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      !!window.matchMedia &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+  );
+
+  useEffect(() => {
+    if (context || typeof window === "undefined" || !window.matchMedia) return;
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const handleChange = (event: MediaQueryListEvent) =>
+      setSystemReduce(event.matches);
+    query.addEventListener("change", handleChange);
+    return () => query.removeEventListener("change", handleChange);
+  }, [context]);
+
+  if (context) return context.reducedMotion;
+  return systemReduce;
+}
+
+/**
+ * High-contrast flag for charts and map markers, which need a non-colour cue
+ * (dash patterns, textures) in that theme. Safe outside the provider.
+ */
+export function useHighContrastPreference(): boolean {
+  const context = useThemeOrNull();
+  const [documentContrast, setDocumentContrast] = useState(
+    () =>
+      typeof document !== "undefined" &&
+      document.documentElement.dataset.contrast === "high",
+  );
+
+  useEffect(() => {
+    if (context || typeof document === "undefined") return;
+    const observer = new MutationObserver(() => {
+      setDocumentContrast(document.documentElement.dataset.contrast === "high");
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-contrast"],
+    });
+    return () => observer.disconnect();
+  }, [context]);
+
+  if (context) return context.contrast === "high";
+  return documentContrast;
 }

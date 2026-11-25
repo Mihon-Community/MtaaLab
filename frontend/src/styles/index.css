@@ -2122,6 +2122,7 @@ html {
   --chart-grid: #dce5dc;
 
   --text-scale: 1;
+  --radius: 0.75rem;
 }
 
 .dark {
@@ -2246,6 +2247,8 @@ html {
 
 html {
   font-size: calc(100% * var(--text-scale, 1));
+  background: var(--background);
+  color: var(--foreground);
 }
 
 body {
@@ -2274,6 +2277,18 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* In-app reduced-motion override: same result even when the OS setting is off. */
+html[data-motion="reduce"] *,
+html[data-motion="reduce"] *::before,
+html[data-motion="reduce"] *::after {
+  scroll-behavior: auto !important;
+  animation-duration: 0.01ms !important;
+  animation-delay: 0ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  transition-delay: 0ms !important;
 }
 
 /* Local demo disclosure banner. */
@@ -2463,5 +2478,29 @@ body {
 
   .demo-banner {
     font-size: 0.74rem;
+  }
+}
+
+/* ============================================================
+   App shell layout helpers
+   The shell uses token colours only, so these few rules exist
+   for things utilities cannot express (translucency, safe area).
+   ============================================================ */
+
+.app-topnav {
+  background: color-mix(in srgb, var(--background) 92%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.mobile-tabbar {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@media print {
+  .app-topnav,
+  .mobile-tabbar,
+  .app-sidebar-print-hide {
+    display: none !important;
   }
 }
