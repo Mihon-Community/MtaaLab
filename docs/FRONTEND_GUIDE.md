@@ -206,7 +206,7 @@ Chart only values the API returned. Reformatting for display is allowed (e.g. re
 | Replay                       | Original vs alternative         | Both sessions' reports/history                          | Grouped bars per outcome metric (slot 1 vs slot 2) + paired reservoir lines; legend + direct labels          |
 | Teacher                      | Learner session outcome         | Session report                                          | Same components as the report; no class aggregates until the API provides them                               |
 
-Build charts through shared components (for example `components/charts/ChartFrame.tsx`) so every screen follows the same rules:
+Build charts through shared components (for example `components/charts/ChartFrame.tsx`) so every screen follows the same rules. Use a restrained shadcn-style card with theme-token surfaces and borders. When using Recharts, enable its keyboard accessibility layer so chart navigation can expose the tooltip values to keyboard users.
 
 - Wrap each chart in `<figure>` with a visible title, a one-sentence `figcaption` summary generated from the values (e.g. "Reservoir fell from 800 to 640 water units over 3 turns"), units on axes, and a **Chart / Table** `ToggleGroup`. The table uses shadcn `Table` with the same numbers.
 - Use 2px lines and thin bars with 4px rounded data ends and a 2px gap between adjacent bars. Grid lines and axes are recessive (`--border`), with a legend for ≥ 2 series.

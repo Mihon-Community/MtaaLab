@@ -69,6 +69,7 @@ function TrendChart({
       }}
     >
       <LineChart
+        accessibilityLayer
         data={points}
         margin={{ top: 8, right: 16, bottom: 4, left: 0 }}
       >

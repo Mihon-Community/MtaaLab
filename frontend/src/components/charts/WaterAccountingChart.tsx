@@ -75,6 +75,7 @@ export function WaterAccountingChart({
       }}
     >
       <BarChart
+        accessibilityLayer
         data={rows}
         layout="vertical"
         margin={{ top: 4, right: 56, bottom: 4, left: 4 }}

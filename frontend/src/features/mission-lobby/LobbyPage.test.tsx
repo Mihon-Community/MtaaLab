@@ -48,10 +48,20 @@ describe("LobbyPage", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByRole("link", {
-        name: "Read briefing for Keep the water flowing",
+        name: "View briefing for Keep the water flowing",
       }),
     ).toHaveAttribute("href", "/briefing?mission_id=mission-1");
     expect(screen.getByText("1 mission")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Welcome to Mtoni" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Explore missions" }),
+    ).toHaveAttribute("href", "#missions");
+    expect(
+      screen.getByRole("heading", { name: "How a mission works" }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole("listitem")).toHaveLength(4);
   });
 
   it("shows the empty state when no missions are assigned", async () => {

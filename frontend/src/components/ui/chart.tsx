@@ -51,7 +51,7 @@ export function ChartContainer({
   return (
     <ChartConfigContext.Provider value={config}>
       <div
-        role="img"
+        role="group"
         aria-label={ariaLabel}
         data-chart="true"
         className={cn(

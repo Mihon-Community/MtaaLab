@@ -2,14 +2,17 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
-  Legend,
   Line,
   LineChart,
   XAxis,
   YAxis,
 } from "recharts";
 import { House, School } from "lucide-react";
-import { ChartTooltip, type ChartConfig } from "@/components/ui/chart";
+import {
+  ChartLegend,
+  ChartTooltip,
+  type ChartConfig,
+} from "@/components/ui/chart";
 import {
   useHighContrastPreference,
   useReducedMotionPreference,
@@ -111,6 +114,7 @@ export function RunComparisonChart({
         title="Outcome comparison"
         summary={summary}
         config={comparisonConfig}
+        legend={<ChartLegend keys={["original", "alternative"]} />}
         table={{
           columns: ["Indicator", "Original", "Alternative", "Difference"],
           rows: rows.map((row) => [
@@ -122,6 +126,7 @@ export function RunComparisonChart({
         }}
       >
         <BarChart
+          accessibilityLayer
           data={rows}
           margin={{ top: 8, right: 8, bottom: 48, left: 0 }}
         >
@@ -142,7 +147,6 @@ export function RunComparisonChart({
             tickFormatter={(value: number) => formatNumber(value, 0)}
           />
           <ChartTooltip valueFormatter={(value) => formatNumber(value)} />
-          <Legend />
           <Bar
             dataKey="original"
             name="Original run"
@@ -165,6 +169,7 @@ export function RunComparisonChart({
           title="Reservoir across turns"
           summary={`Both runs start from the same saved initial state; by the last recorded turn the original held ${originalReservoir} and the alternative ${alternativeReservoir} ${waterUnit}.`}
           config={comparisonConfig}
+          legend={<ChartLegend keys={["original", "alternative"]} />}
           table={{
             columns: [
               "Turn",
@@ -179,6 +184,7 @@ export function RunComparisonChart({
           }}
         >
           <LineChart
+            accessibilityLayer
             data={linePoints}
             margin={{ top: 8, right: 8, bottom: 4, left: 0 }}
           >
@@ -197,7 +203,6 @@ export function RunComparisonChart({
             <ChartTooltip
               valueFormatter={(value) => `${formatNumber(value)} ${waterUnit}`}
             />
-            <Legend />
             <Line
               type="monotone"
               dataKey="original"
