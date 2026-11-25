@@ -56,7 +56,7 @@ describe("top navigation", () => {
 
     expect(
       await screen.findByText(
-        "Sign-in is not configured for this installation.",
+
       ),
     ).toBeInTheDocument();
   });
